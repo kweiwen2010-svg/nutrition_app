@@ -1,0 +1,13 @@
+{
+    "age": 35,
+    "gender": "male",
+    "height": 175,
+    "weight": 70,
+    "goal": "lose",
+    "bmr": 1623.8,
+    "tdee": 2232.7,
+    "target_calories": 1832.7,
+    "target_protein": 137.4,
+    "target_carbs": 183.3,
+    "target_fat": 61.1
+}

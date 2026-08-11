@@ -1,0 +1,28 @@
+[
+    {
+        "food_name": "Herbal Chicken and Cabbage Soup",
+        "estimated_weight_g": 3000,
+        "calories": 1520,
+        "protein": 221,
+        "carbs": 41,
+        "fat": 78
+    },
+    {
+        "food_name": "雞肉高麗菜紅棗枸杞湯",
+        "estimated_weight_g": 3200,
+        "calories": 821,
+        "protein": 80,
+        "carbs": 35,
+        "fat": 43
+    },
+    {
+        "food_name": "高麗菜紅棗枸杞燉雞湯配白飯",
+        "ingredients_breakdown": "大鍋燉雞湯（包含約6-7塊帶骨雞腿肉或雞塊、約180克高麗菜、約40克紅棗、約8克枸杞及約1200毫升清雞湯），搭配一小碗約130克白飯。",
+        "estimated_weight_g": 1938,
+        "calories": 1221,
+        "protein": 133,
+        "carbs": 92,
+        "fat": 37,
+        "nutritionist_comment": "這道高麗菜紅棗枸杞燉雞湯搭配白飯，富含優質蛋白質（雞肉）及膳食纖維（蔬菜），營養均衡。然而，此份量（約2公斤）應為多人份餐點，若作為單人份攝取，總熱量與三大營養素會遠超過單餐所需。建議分食，並減少雞肉的份量，以利健康維持或體重管理。"
+    }
+]
