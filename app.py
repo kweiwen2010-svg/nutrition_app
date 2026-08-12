@@ -138,11 +138,12 @@ with tab2:
     st.subheader("📸 拍攝或上傳餐點照片")
     uploaded_file = st.file_uploader("選擇餐點圖片", type=["jpg", "jpeg", "png"])
     
-    ai_food_name = "健康餐点"
+    ai_food_name = "健康餐點"
     ai_food_cals = 500
     
     if uploaded_file is not None:
-        st.image(uploaded_file, caption="上傳的餐點", use_column_width=True)
+        # 移除了會引發錯誤的舊參數，直接安全顯示圖片
+        st.image(uploaded_file, caption="上傳的餐點")
         
         api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY", None)
         
@@ -158,7 +159,6 @@ with tab2:
                         
                         response = model.generate_content([image_part, prompt])
                         result_text = response.text.strip()
-                        
                         if result_text.startswith("```json"):
                             result_text = result_text[7:]
                         if result_text.endswith("```"):
@@ -169,7 +169,7 @@ with tab2:
                         ai_food_cals = int(parsed.get("calories", 500))
                         st.success(f"AI 分析完成！辨識為：{ai_food_name}，約 {ai_food_cals} 大卡")
                     except Exception as e:
-                        st.warning(f"AI 分析時發生小狀況（{e}），請直接在下方手動修改名稱與熱量即可。")
+                        st.warning(f"AI 分析時發生小狀況（{e}），請直接手動修改名稱與熱量。")
         else:
             st.info("提示：若要啟用 AI 自動辨識，請在 Streamlit Secrets 設定 GEMINI_API_KEY。")
 
