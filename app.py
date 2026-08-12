@@ -152,7 +152,7 @@ with tab2:
             if st.button("🤖 請 AI 分析餐點熱量"):
                 with st.spinner("AI 正在辨識您的餐點內容與熱量..."):
                     try:
-                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        model = genai.GenerativeModel('gemini-2.5-flash')
                         bytes_data = uploaded_file.getvalue()
                         image_part = {"mime_type": uploaded_file.type, "data": bytes_data}
                         prompt = "請辨識這張圖片中的食物名稱，並估算它的總熱量（大卡）。請嚴格依照以下 JSON 格式回傳，不要有其他廢話：\n{\"name\": \"食物名稱\", \"calories\": 數字}"
