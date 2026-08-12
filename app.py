@@ -161,7 +161,6 @@ tab1, tab2, tab3, tab4 = st.tabs(
 # 取得今日資料
 today_str = get_today_str()
 today_logs = load_daily_log(today_str)
-# 確保每一筆 item 確實是 dict (字典)，才呼叫 .get()，否則自動忽略
 total_eaten = sum([item.get("calories", 0) for item in data if isinstance(item, dict)])
 # --- 分頁 1：今日戰情室 ---
 with tab1:
