@@ -146,6 +146,12 @@ with tab2:
         st.image(uploaded_file, caption="上傳的餐點")
         
         api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY", None)
+
+# 測試用：直接在畫面上顯示有沒有抓到 Key
+if api_key:
+    st.success("✅ 已成功讀取到 Gemini API Key！")
+else:
+    st.error("❌ 尚未讀取到 API Key，請檢查 Streamlit Secrets 設定或重新開機 (Reboot)。")
         
         if api_key:
             genai.configure(api_key=api_key)
