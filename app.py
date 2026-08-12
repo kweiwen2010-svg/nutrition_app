@@ -161,7 +161,7 @@ tab1, tab2, tab3, tab4 = st.tabs(
 # 取得今日資料
 today_str = get_today_str()
 today_logs = load_daily_log(today_str)
-total_eaten = sum([item.get("calories", 0) for item in data if isinstance(item, dict)])
+total_eaten = sum([item.get("calories", 0) for item in today_logs if isinstance(item, dict)])
 # --- 分頁 1：今日戰情室 ---
 with tab1:
   st.subheader("🔥 今日熱量戰情室")
