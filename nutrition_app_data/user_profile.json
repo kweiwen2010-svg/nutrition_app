@@ -1,13 +1,85 @@
-{
-    "age": 35,
-    "gender": "male",
-    "height": 175,
-    "weight": 70,
-    "goal": "lose",
-    "bmr": 1623.8,
-    "tdee": 2232.7,
-    "target_calories": 1832.7,
-    "target_protein": 137.4,
-    "target_carbs": 183.3,
-    "target_fat": 61.1
-}
+import json
+import os
+import streamlit as st
+
+PROFILE_FILE = "user_profile.json"
+
+
+def load_user_profile():
+  if os.path.exists(PROFILE_FILE):
+    with open(PROFILE_FILE, "r", encoding="utf-8") as f:
+      return json.load(f)
+  return {
+      "age": 30,
+      "gender": "男",
+      "height": 175,
+      "weight": 70,
+      "activity_level": "中度活動量 (每週運動3-5天)",
+      "goal": "維持體重",
+      "medical_history": "無",
+  }
+
+
+def save_user_profile(profile_data):
+  with open(PROFILE_FILE, "w", encoding="utf-8") as f:
+    json.dump(profile_data, f, ensure_ascii=False, indent=4)
+
+
+# 載入現有資料
+profile = load_user_profile()
+
+# 建立側邊欄或專屬設定介面
+with st.sidebar:
+  st.subheader("⚙️ 個人身體設定")
+  st.caption("輸入一次永久記憶，自動計算專屬熱量與營養目標")
+
+  with st.form("profile_form"):
+    age = st.number_input("年齡", value=profile.get("age", 30))
+    gender = st.selectbox(
+        "生理性別", ["男", "女"], index=0 if profile.get("gender") == "男" else 1
+    )
+    height = st.number_input("身高 (cm)", value=profile.get("height", 175))
+    weight = st.number_input("體重 (kg)", value=profile.get("weight", 70.0))
+
+    activity_options = [
+        "久坐不動 (幾乎不運動)",
+        "輕度活動量 (每週運動1-3天)",
+        "中度活動量 (每週運動3-5天)",
+        "高度活動量 (每週運動6-7天)",
+    ]
+    current_activity = profile.get("activity_level", activity_options[2])
+    activity_idx = (
+        activity_options.index(current_activity)
+        if current_activity in activity_options
+        else 2
+    )
+    activity_level = st.selectbox(
+        "日常活動量", activity_options, index=activity_idx
+    )
+
+    goal_options = ["減脂期 (-500 kcal)", "維持體重", "增肌期 (+300 kcal)"]
+    current_goal = profile.get("goal", "維持體重")
+    goal_idx = (
+        goal_options.index(current_goal) if current_goal in goal_options else 1
+    )
+    goal = st.selectbox("體重管理目標", goal_options, index=goal_idx)
+
+    medical_history = st.text_input(
+        "疾病史 / 飲食禁忌 (如: 高血壓、糖尿病)",
+        value=profile.get("medical_history", "無"),
+    )
+
+    submitted = st.form_submit_button("💾 儲存個人資料")
+    if submitted:
+      new_profile = {
+          "age": age,
+          "gender": gender,
+          "height": height,
+          "weight": weight,
+          "activity_level": activity_level,
+          "goal": goal,
+          "medical_history": medical_history,
+      }
+      save_user_profile(new_profile)
+      st.success("個人資料已成功儲存！")
+      st.rerun()
