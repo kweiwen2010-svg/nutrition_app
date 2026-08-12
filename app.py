@@ -158,6 +158,7 @@ with tab2:
                         
                         response = model.generate_content([image_part, prompt])
                         result_text = response.text.strip()
+                        
                         if result_text.startswith("```json"):
                             result_text = result_text[7:]
                         if result_text.endswith("```"):
@@ -168,7 +169,7 @@ with tab2:
                         ai_food_cals = int(parsed.get("calories", 500))
                         st.success(f"AI 分析完成！辨識為：{ai_food_name}，約 {ai_food_cals} 大卡")
                     except Exception as e:
-                        st.warning("AI 自動辨識發生一點狀況，請直接手動輸入名稱與熱量。")
+                        st.warning(f"AI 分析時發生小狀況（{e}），請直接在下方手動修改名稱與熱量即可。")
         else:
             st.info("提示：若要啟用 AI 自動辨識，請在 Streamlit Secrets 設定 GEMINI_API_KEY。")
 
