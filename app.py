@@ -142,23 +142,16 @@ with tab2:
     ai_food_cals = 500
     
     if uploaded_file is not None:
-        # 移除了會引發錯誤的舊參數，直接安全顯示圖片
         st.image(uploaded_file, caption="上傳的餐點")
         
         api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY", None)
-
-# 測試用：直接在畫面上顯示有沒有抓到 Key
-if api_key:
-    st.success("✅ 已成功讀取到 Gemini API Key！")
-else:
-    st.error("❌ 尚未讀取到 API Key，請檢查 Streamlit Secrets 設定或重新開機 (Reboot)。")
         
         if api_key:
             genai.configure(api_key=api_key)
             if st.button("🤖 請 AI 分析餐點熱量"):
                 with st.spinner("AI 正在辨識您的餐點內容與熱量..."):
                     try:
-                        model = genai.GenerativeModel('gemini-2.5-flash')
+                        model = genai.GenerativeModel('gemini-1.5-flash')
                         bytes_data = uploaded_file.getvalue()
                         image_part = {"mime_type": uploaded_file.type, "data": bytes_data}
                         prompt = "請辨識這張圖片中的食物名稱，並估算它的總熱量（大卡）。請嚴格依照以下 JSON 格式回傳，不要有其他廢話：\n{\"name\": \"食物名稱\", \"calories\": 數字}"
