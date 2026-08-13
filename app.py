@@ -7,7 +7,7 @@ import google.generativeai as genai
 # --- 頁面配置 ---
 st.set_page_config(page_title="AI 營養管家", layout="centered")
 
-# --- 輔助函式：確保讀取的數值為 float ---
+# --- 輔助函式 ---
 def load_user_profile():
     filename = "nutrition_app_data/user_profile.json"
     default_profile = {
@@ -62,8 +62,8 @@ def save_daily_log(date_str, new_item):
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-# --- 側欄：個人身體數據 ---
-st.sidebar.title("⚙️ 個人身體數據")
+# --- 側欄：個人身體數據與 API 金鑰 ---
+st.sidebar.title("⚙️ 個人設定與金鑰")
 profile = load_user_profile()
 
 user_name = st.sidebar.text_input("您的名字", value=profile.get("name", "Vincent"))
@@ -78,7 +78,6 @@ activity = st.sidebar.selectbox("活動狀態", activity_options, index=activity
 
 medical = st.sidebar.text_area("特殊病史 / 飲食禁忌", value=profile.get("medical", "無"))
 
-# 計算 BMR 與 TDEE
 bmr = 10.0 * weight + 6.25 * height - 5.0 * age + 5.0
 activity_multipliers = {
     "久坐 (幾乎無運動)": 1.2,
@@ -91,22 +90,22 @@ target_calories = st.sidebar.number_input("每日目標熱量 (kcal)", min_value
 
 if st.sidebar.button("儲存並更新設定"):
     new_profile = {
-        "name": user_name,
-        "age": age,
-        "height": height,
-        "weight": weight,
-        "activity": activity,
-        "medical": medical,
-        "tdee": tdee,
-        "target_calories": target_calories
+        "name": user_name, "age": age, "height": height, "weight": weight,
+        "activity": activity, "medical": medical, "tdee": tdee, "target_calories": target_calories
     }
     save_user_profile(new_profile)
     st.sidebar.success("設定已更新！")
 
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔑 Gemini API 設定")
+manual_key = st.sidebar.text_input("輸入 Gemini API Key", type="password")
+
+# 取得有效金鑰
+api_key = manual_key if manual_key else st.secrets.get("GEMINI_API_KEY", "")
+
 # --- 主畫面標題 ---
 st.title(f"🥗 {user_name} 的 AI 營養管家")
 
-# --- 分頁介面 ---
 tab1, tab2, tab3, tab4 = st.tabs(["📊 今日戰情室", "📸 記錄新餐點", "📅 歷史日誌", "📈 趨勢分析"])
 
 today_str = get_today_str()
@@ -129,35 +128,27 @@ with tab1:
     else:
         for item in today_logs:
             if isinstance(item, dict):
-                name = item.get('name', '未知餐點')
-                cals = item.get('calories', 0)
-                st.write(f"🍽️ {name} - {cals} kcal")
+                st.write(f"🍽️ {item.get('name', '未知餐點')} - {item.get('calories', 0)} kcal ({item.get('time', '')})")
 
-# --- 分頁 2: 記錄新餐點 (含 AI 辨識) ---
+# --- 分頁 2: 記錄新餐點 (含 AI 2.5 辨識) ---
 with tab2:
     st.subheader("📸 拍攝或上傳餐點照片")
     uploaded_file = st.file_uploader("選擇餐點圖片", type=["jpg", "jpeg", "png"])
     
     ai_food_name = "健康餐點"
     ai_food_cals = 500
-    
-    # 智慧抓取 API Key
-api_key = None
-try:
-    # 直接強制讀取頂層的 GEMINI_API_KEY
-    api_key = st.secrets.get("GEMINI_API_KEY")
-except:
-    pass
 
     if uploaded_file is not None:
         st.image(uploaded_file, caption="上傳的餐點")
         
-        if api_key:
-            genai.configure(api_key=api_key)
-            if st.button("🤖 請 AI 分析餐點熱量"):
+        if not api_key:
+            st.warning("⚠️ 請先在左側欄位輸入您的 Gemini API Key 才能解鎖 AI 自動辨識！")
+        else:
+            if st.button("🤖 請 AI 分析餐點熱量 (2.5 模型)"):
                 with st.spinner("AI 正在辨識您的餐點內容與熱量..."):
                     try:
-                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        genai.configure(api_key=api_key)
+                        model = genai.GenerativeModel('gemini-2.5-flash')
                         bytes_data = uploaded_file.getvalue()
                         image_part = {"mime_type": uploaded_file.type, "data": bytes_data}
                         prompt = "請辨識這張圖片中的食物名稱，並估算它的總熱量（大卡）。請嚴格依照以下 JSON 格式回傳，不要有其他廢話：\n{\"name\": \"食物名稱\", \"calories\": 數字}"
@@ -174,9 +165,7 @@ except:
                         ai_food_cals = int(parsed.get("calories", 500))
                         st.success(f"AI 分析完成！辨識為：{ai_food_name}，約 {ai_food_cals} 大卡")
                     except Exception as e:
-                        st.warning(f"AI 分析時發生小狀況（{e}），請直接手動修改名稱與熱量。")
-        else:
-            st.info("提示：若要啟用 AI 自動辨識，請在 Streamlit Secrets 設定 GEMINI_API_KEY。")
+                        st.warning(f"AI 分析時發生狀況（{e}），請直接手動修改名稱與熱量。")
 
     food_name = st.text_input("餐點名稱", value=ai_food_name)
     food_cals = st.number_input("估算熱量 (kcal)", min_value=0, value=ai_food_cals)
@@ -204,24 +193,17 @@ with tab3:
 with tab4:
     st.subheader("📈 熱量攝取趨勢分析")
     st.info("這裡將會顯示您的長期熱量變化圖表。")
-# --- 側欄手動輸入 API Key ---
-st.sidebar.subheader("🔑 API 金鑰設定")
-manual_key = st.sidebar.text_input("輸入 Gemini API Key", type="password")
 
-test_key = manual_key if manual_key else st.secrets.get("GEMINI_API_KEY", "")
-
-st.write("---")
-st.subheader("🧪 API 快速連線測試 (使用 2.5 模型)")
-
-if st.button("點擊測試 API 是否正常"):
-    if not test_key:
-        st.error("❌ 尚未輸入或抓取到 API Key，請在左側欄位輸入您的 Gemini API Key！")
+# --- 底部：API 快速連線測試區 ---
+st.sidebar.markdown("---")
+if st.sidebar.button("🧪 測試 API 是否正常"):
+    if not api_key:
+        st.sidebar.error("❌ 尚未輸入 API Key！")
     else:
         try:
-            genai.configure(api_key=test_key)
-            # 改用 2.5 模型
+            genai.configure(api_key=api_key)
             test_model = genai.GenerativeModel('gemini-2.5-flash')
             test_response = test_model.generate_content("請回覆：OK")
-            st.success(f"✅ 成功！API 回應正常：{test_response.text}")
+            st.sidebar.success(f"✅ API 正常：{test_response.text}")
         except Exception as e:
-            st.error(f"❌ 錯誤：API 連線失敗，原因：{e}")
+            st.sidebar.error(f"❌ 失敗：{e}")
