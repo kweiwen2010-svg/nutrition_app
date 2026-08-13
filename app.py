@@ -138,16 +138,17 @@ with tab2:
     ai_food_name = "健康餐點"
     ai_food_cals = 500
 
-    if uploaded_file is not None:
-        st.image(uploaded_file, caption="上傳的餐點")
-        
-        if not api_key:
-            st.warning("⚠️ 請先在左側欄位輸入您的 Gemini API Key 才能解鎖 AI 自動辨識！")
-        else:
+    current_api_key = manual_key if manual_key else api_key
+
+    if not current_api_key:
+        st.info("提示：若要啟用 AI 自動辨識，請在左側欄位輸入 Gemini API Key。")
+    else:
+        if uploaded_file is not None:
+            st.image(uploaded_file, caption="上傳的餐點")
             if st.button("🤖 請 AI 分析餐點熱量 (2.5 模型)"):
                 with st.spinner("AI 正在辨識您的餐點內容與熱量..."):
                     try:
-                        genai.configure(api_key=api_key)
+                        genai.configure(api_key=current_api_key)
                         model = genai.GenerativeModel('gemini-2.5-flash')
                         bytes_data = uploaded_file.getvalue()
                         image_part = {"mime_type": uploaded_file.type, "data": bytes_data}
@@ -197,11 +198,11 @@ with tab4:
 # --- 底部：API 快速連線測試區 ---
 st.sidebar.markdown("---")
 if st.sidebar.button("🧪 測試 API 是否正常"):
-    if not api_key:
+    if not current_api_key:
         st.sidebar.error("❌ 尚未輸入 API Key！")
     else:
         try:
-            genai.configure(api_key=api_key)
+            genai.configure(api_key=current_api_key)
             test_model = genai.GenerativeModel('gemini-2.5-flash')
             test_response = test_model.generate_content("請回覆：OK")
             st.sidebar.success(f"✅ API 正常：{test_response.text}")
