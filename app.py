@@ -144,7 +144,8 @@ with tab2:
     # 智慧抓取 API Key（支援多種來源格式）
     api_key = None
     try:
-        api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY") or st.secrets.get("gemini", {}).get("api_key")
+       # 直接強制讀取頂層的 GEMINI_API_KEY
+    api_key = st.secrets.get("GEMINI_API_KEY")
     except:
         pass
 
