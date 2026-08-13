@@ -204,3 +204,20 @@ with tab3:
 with tab4:
     st.subheader("📈 熱量攝取趨勢分析")
     st.info("這裡將會顯示您的長期熱量變化圖表。")
+# --- 簡易 API 連線測試 ---
+st.write("---")
+st.subheader("🧪 API 快速連線測試")
+
+test_key = st.secrets.get("GEMINI_API_KEY", "")
+
+if st.button("點擊測試 API 是否正常"):
+    if not test_key:
+        st.error("❌ 失敗：抓不到 st.secrets 裡面的 GEMINI_API_KEY，值是空的！")
+    else:
+        try:
+            genai.configure(api_key=test_key)
+            test_model = genai.GenerativeModel('gemini-1.5-flash')
+            test_response = test_model.generate_content("請回覆：OK")
+            st.success(f"✅ 成功！API 回應正常：{test_response.text}")
+        except Exception as e:
+            st.error(f"❌ 錯誤：API 連線失敗，原因：{e}")
