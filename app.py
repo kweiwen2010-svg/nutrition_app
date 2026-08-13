@@ -204,15 +204,14 @@ with tab3:
 with tab4:
     st.subheader("📈 熱量攝取趨勢分析")
     st.info("這裡將會顯示您的長期熱量變化圖表。")
-# --- 側欄手動輸入 API Key（最穩陣的替代方案） ---
+# --- 側欄手動輸入 API Key ---
 st.sidebar.subheader("🔑 API 金鑰設定")
 manual_key = st.sidebar.text_input("輸入 Gemini API Key", type="password")
 
-# 優先使用手動輸入的，如果沒有則嘗試抓 secrets
 test_key = manual_key if manual_key else st.secrets.get("GEMINI_API_KEY", "")
 
 st.write("---")
-st.subheader("🧪 API 快速連線測試")
+st.subheader("🧪 API 快速連線測試 (使用 2.5 模型)")
 
 if st.button("點擊測試 API 是否正常"):
     if not test_key:
@@ -220,7 +219,8 @@ if st.button("點擊測試 API 是否正常"):
     else:
         try:
             genai.configure(api_key=test_key)
-            test_model = genai.GenerativeModel('gemini-1.5-flash')
+            # 改用 2.5 模型
+            test_model = genai.GenerativeModel('gemini-2.5-flash')
             test_response = test_model.generate_content("請回覆：OK")
             st.success(f"✅ 成功！API 回應正常：{test_response.text}")
         except Exception as e:
