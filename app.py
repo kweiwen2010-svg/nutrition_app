@@ -141,10 +141,15 @@ with tab2:
     ai_food_name = "健康餐點"
     ai_food_cals = 500
     
+    # 智慧抓取 API Key（支援多種來源格式）
+    api_key = None
+    try:
+        api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY") or st.secrets.get("gemini", {}).get("api_key")
+    except:
+        pass
+
     if uploaded_file is not None:
         st.image(uploaded_file, caption="上傳的餐點")
-        
-        api_key = st.secrets.get("gemini", {}).get("api_key") or os.getenv("GEMINI_API_KEY")
         
         if api_key:
             genai.configure(api_key=api_key)
