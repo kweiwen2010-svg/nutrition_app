@@ -14,31 +14,46 @@ st.set_page_config(page_title="AI 智慧營養管家", page_icon="🥗", layout=
 st.markdown(
     """
     <style>
-    html, body, [class*="css"] { font-size: 28px !important; }
+    /* 全域基礎字型改為舒適的 16px */
+    html, body, [class*="css"] { font-size: 16px !important; }
     .stApp { background-color: #f5f7f9; }
+    
+    /* 卡片容器間距優化 */
     div[data-testid="stVerticalBlock"] { 
         background-color: white; 
-        border-radius: 20px; 
-        padding: 25px; 
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05); 
+        border-radius: 16px; 
+        padding: 16px; 
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05); 
     }
-    .stTabs [data-baseweb="tab"] p { font-size: 32px !important; font-weight: bold !important; }
-    h1 { font-size: 48px !important; }
-    h2 { font-size: 38px !important; }
-    h3 { font-size: 32px !important; }
+    
+    /* 標題層級縮放 */
+    h1 { font-size: 28px !important; }
+    h2 { font-size: 22px !important; }
+    h3 { font-size: 18px !important; }
+    
+    /* 分頁頁籤 (Tabs) */
+    .stTabs [data-baseweb="tab"] p { font-size: 18px !important; font-weight: bold !important; }
+    
+    /* 按鈕大小與內邊距 */
     .stButton>button { 
-        width: 100%; border-radius: 25px; background-color: #2ecc71; 
-        color: white; font-weight: bold; font-size: 28px !important; padding: 18px; 
+        width: 100%; 
+        border-radius: 12px; 
+        background-color: #2ecc71; 
+        color: white; 
+        font-weight: bold; 
+        font-size: 18px !important; 
+        padding: 10px 16px; 
     }
-    input, select, textarea, div[data-baseweb="select"] span { font-size: 28px !important; }
-    div[data-baseweb="popover"] div { font-size: 28px !important; }
-    .streamlit-expanderHeader p { font-size: 28px !important; font-weight: bold !important; }
+    
+    /* 輸入框、下拉選單與摺疊區塊 */
+    input, select, textarea, div[data-baseweb="select"] span { font-size: 16px !important; }
+    div[data-baseweb="popover"] div { font-size: 16px !important; }
+    .streamlit-expanderHeader p { font-size: 16px !important; font-weight: bold !important; }
     [data-testid="stSidebar"] { background-color: #eef2f5; }
     </style>
 """,
     unsafe_allow_html=True,
 )
-
 # ==========================================
 # 2. 系統統一載入 API 與資料庫初始化
 # ==========================================
