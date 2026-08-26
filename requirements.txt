@@ -1,6 +1,5 @@
 streamlit
 pandas
-google-generativeai
-matplotlib
-python-dotenv
-plotly
+psycopg2-binary
+google-genai
+pillow
