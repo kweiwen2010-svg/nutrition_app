@@ -1,210 +1,378 @@
-import streamlit as st
-import json
-import os
 from datetime import datetime
-import google.generativeai as genai
+import os
+from google import genai
+import pandas as pd
+import psycopg2
+import streamlit as st
+from PIL import Image
 
-# --- 頁面配置 ---
-st.set_page_config(page_title="AI 營養管家", layout="centered")
+# ==========================================
+# 1. 頁面與 UI 樣式設定
+# ==========================================
+st.set_page_config(page_title="AI 智慧營養管家", page_icon="🥗", layout="centered")
 
-# --- 輔助函式 ---
-def load_user_profile():
-    filename = "nutrition_app_data/user_profile.json"
-    default_profile = {
-        "name": "Vincent",
-        "age": 30.0,
-        "height": 175.0,
-        "weight": 70.0,
-        "activity": "中度運動 (每週3-5天)",
-        "medical": "無",
-        "tdee": 2182.0,
-        "target_calories": 2182.0
+st.markdown(
+    """
+    <style>
+    html, body, [class*="css"] { font-size: 28px !important; }
+    .stApp { background-color: #f5f7f9; }
+    div[data-testid="stVerticalBlock"] { 
+        background-color: white; 
+        border-radius: 20px; 
+        padding: 25px; 
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05); 
     }
-    if not os.path.exists(filename):
-        return default_profile
-    try:
-        with open(filename, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            data["age"] = float(data.get("age", 30.0))
-            data["height"] = float(data.get("height", 175.0))
-            data["weight"] = float(data.get("weight", 70.0))
-            data["tdee"] = float(data.get("tdee", 2182.0))
-            data["target_calories"] = float(data.get("target_calories", 2182.0))
-            return data
-    except:
-        return default_profile
-
-def save_user_profile(profile_data):
-    os.makedirs("nutrition_app_data", exist_ok=True)
-    filename = "nutrition_app_data/user_profile.json"
-    with open(filename, "w", encoding="utf-8") as f:
-        json.dump(profile_data, f, ensure_ascii=False, indent=4)
-
-def get_today_str():
-    return datetime.now().strftime("%Y-%m-%d")
-
-def load_daily_log(date_str):
-    filename = "nutrition_app_data/daily_log.json"
-    if not os.path.exists(filename):
-        return []
-    try:
-        with open(filename, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return data if isinstance(data, list) else []
-    except:
-        return []
-
-def save_daily_log(date_str, new_item):
-    os.makedirs("nutrition_app_data", exist_ok=True)
-    filename = "nutrition_app_data/daily_log.json"
-    data = load_daily_log(date_str)
-    data.append(new_item)
-    with open(filename, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-
-# --- 側欄：個人身體數據與 API 金鑰 ---
-st.sidebar.title("⚙️ 個人設定與金鑰")
-profile = load_user_profile()
-
-user_name = st.sidebar.text_input("您的名字", value=profile.get("name", "Vincent"))
-age = st.sidebar.number_input("年齡", min_value=10.0, max_value=120.0, value=float(profile.get("age", 30.0)))
-height = st.sidebar.number_input("身高 (cm)", min_value=100.0, max_value=250.0, value=float(profile.get("height", 175.0)))
-weight = st.sidebar.number_input("體重 (kg)", min_value=30.0, max_value=200.0, value=float(profile.get("weight", 70.0)))
-
-activity_options = ["久坐 (幾乎無運動)", "輕度運動 (每週1-3天)", "中度運動 (每週3-5天)", "高度運動 (每週6-7天)"]
-current_activity = profile.get("activity", "中度運動 (每週3-5天)")
-activity_idx = activity_options.index(current_activity) if current_activity in activity_options else 2
-activity = st.sidebar.selectbox("活動狀態", activity_options, index=activity_idx)
-
-medical = st.sidebar.text_area("特殊病史 / 飲食禁忌", value=profile.get("medical", "無"))
-
-bmr = 10.0 * weight + 6.25 * height - 5.0 * age + 5.0
-activity_multipliers = {
-    "久坐 (幾乎無運動)": 1.2,
-    "輕度運動 (每週1-3天)": 1.375,
-    "中度運動 (每週3-5天)": 1.55,
-    "高度運動 (每週6-7天)": 1.725
-}
-tdee = float(bmr * activity_multipliers.get(activity, 1.55))
-target_calories = st.sidebar.number_input("每日目標熱量 (kcal)", min_value=500.0, max_value=5000.0, value=float(profile.get("target_calories", tdee)))
-
-if st.sidebar.button("儲存並更新設定"):
-    new_profile = {
-        "name": user_name, "age": age, "height": height, "weight": weight,
-        "activity": activity, "medical": medical, "tdee": tdee, "target_calories": target_calories
+    .stTabs [data-baseweb="tab"] p { font-size: 32px !important; font-weight: bold !important; }
+    h1 { font-size: 48px !important; }
+    h2 { font-size: 38px !important; }
+    h3 { font-size: 32px !important; }
+    .stButton>button { 
+        width: 100%; border-radius: 25px; background-color: #2ecc71; 
+        color: white; font-weight: bold; font-size: 28px !important; padding: 18px; 
     }
-    save_user_profile(new_profile)
-    st.sidebar.success("設定已更新！")
+    input, select, textarea, div[data-baseweb="select"] span { font-size: 28px !important; }
+    div[data-baseweb="popover"] div { font-size: 28px !important; }
+    .streamlit-expanderHeader p { font-size: 28px !important; font-weight: bold !important; }
+    [data-testid="stSidebar"] { background-color: #eef2f5; }
+    </style>
+""",
+    unsafe_allow_html=True,
+)
+
+# ==========================================
+# 2. 系統統一載入 API 與資料庫初始化
+# ==========================================
+api_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
+if not api_key:
+    st.error("❌ 系統尚未設定 GEMINI_API_KEY，請在 Secrets 中設定。")
+    st.stop()
+
+client = genai.Client(api_key=api_key)
+
+def get_db_connection():
+    database_url = st.secrets.get("DATABASE_URL") or os.environ.get("DATABASE_URL")
+    if not database_url:
+        st.error("❌ 找不到 DATABASE_URL 連線資訊！")
+        st.stop()
+    return psycopg2.connect(database_url)
+
+def init_db():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            username TEXT UNIQUE NOT NULL
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS user_profile (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            height REAL, weight REAL, age INTEGER, activity TEXT, medical TEXT
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS food_logs (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            date TEXT, meal_type TEXT, content TEXT, weight REAL
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS daily_summaries (
+            user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            date TEXT, summary TEXT, PRIMARY KEY (user_id, date)
+        )
+    """)
+    
+    c.execute("SELECT COUNT(*) FROM users")
+    if c.fetchone()[0] == 0:
+        c.execute("INSERT INTO users (username) VALUES (%s) RETURNING id", ("預設使用者",))
+        default_id = c.fetchone()[0]
+        c.execute(
+            "INSERT INTO user_profile (user_id, height, weight, age, activity, medical) VALUES (%s, 175.0, 70.0, 30, '中度運動', '無')",
+            (default_id,)
+        )
+    conn.commit()
+    c.close()
+    conn.close()
+
+init_db()
+
+# ==========================================
+# 3. 資料庫獨立查詢與操作
+# ==========================================
+def get_all_users():
+    conn = get_db_connection()
+    df = pd.read_sql("SELECT id, username FROM users ORDER BY id ASC", conn)
+    conn.close()
+    return df
+
+def create_user(username):
+    conn = get_db_connection()
+    c = conn.cursor()
+    try:
+        c.execute("INSERT INTO users (username) VALUES (%s) RETURNING id", (username,))
+        new_id = c.fetchone()[0]
+        c.execute(
+            "INSERT INTO user_profile (user_id, height, weight, age, activity, medical) VALUES (%s, 170.0, 65.0, 30, '中度運動', '無')",
+            (new_id,)
+        )
+        conn.commit()
+        return new_id
+    except psycopg2.IntegrityError:
+        conn.rollback()
+        st.sidebar.error("❌ 使用者名稱已存在！")
+        return None
+    finally:
+        c.close()
+        conn.close()
+
+def get_user_profile(user_id):
+    conn = get_db_connection()
+    df = pd.read_sql("SELECT * FROM user_profile WHERE user_id=%s", conn, params=(user_id,))
+    conn.close()
+    if df.empty:
+        return {"height": 170.0, "weight": 65.0, "age": 30, "activity": "中度運動", "medical": "無"}
+    return df.iloc[0].to_dict()
+
+def update_user_profile(user_id, data):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute(
+        """UPDATE user_profile 
+           SET height=%s, weight=%s, age=%s, activity=%s, medical=%s 
+           WHERE user_id=%s""",
+        (data["height"], data["weight"], data["age"], data["activity"], data["medical"], user_id)
+    )
+    conn.commit()
+    c.close()
+    conn.close()
+
+# ==========================================
+# 4. 側邊欄：身份切換 (不需輸入 API Key)
+# ==========================================
+st.sidebar.title("👤 使用者帳號")
+
+users_df = get_all_users()
+user_list = users_df["username"].tolist()
+
+selected_username = st.sidebar.selectbox("選擇您的帳號", user_list)
+current_user_id = int(users_df[users_df["username"] == selected_username]["id"].values[0])
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("🔑 Gemini API 設定")
-manual_key = st.sidebar.text_input("輸入 Gemini API Key", type="password")
+st.sidebar.subheader("➕ 新增親友帳號")
+new_user_input = st.sidebar.text_input("新使用者姓名")
+if st.sidebar.button("建立帳號"):
+    if new_user_input.strip():
+        new_id = create_user(new_user_input.strip())
+        if new_id:
+            st.sidebar.success(f"✅ 已建立：{new_user_input}")
+            st.rerun()
 
-# 取得有效金鑰
-api_key = manual_key if manual_key else st.secrets.get("GEMINI_API_KEY", "")
+# ==========================================
+# 5. 主介面
+# ==========================================
+st.title(f"🥗 AI 智慧營養管家 ({selected_username})")
+tab1, tab2, tab3, tab4 = st.tabs(["📸 記錄", "📖 日誌", "🤖 當日總結", "⚙️ 設定"])
 
-# --- 主畫面標題 ---
-st.title(f"🥗 {user_name} 的 AI 營養管家")
-
-tab1, tab2, tab3, tab4 = st.tabs(["📊 今日戰情室", "📸 記錄新餐點", "📅 歷史日誌", "📈 趨勢分析"])
-
-today_str = get_today_str()
-today_logs = load_daily_log(today_str)
-total_eaten = sum([item.get("calories", 0) for item in today_logs if isinstance(item, dict)])
-
-# --- 分頁 1: 今日戰情室 ---
+# ------------------------------------------
+# TAB 1: 拍照與記錄
+# ------------------------------------------
 with tab1:
-    st.subheader("🔥 今日熱量戰情室")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric(label="今日目標", value=f"{int(target_calories)} kcal", delta=f"TDEE: {int(tdee)}")
-    with col2:
-        st.metric(label="已攝取", value=f"{int(total_eaten)} kcal", delta=f"剩餘: {int(target_calories - total_eaten)} kcal")
-    
-    st.write("---")
-    st.subheader("📝 今日已記錄餐點")
-    if not today_logs:
-        st.info("今天尚未記錄任何餐點。")
-    else:
-        for item in today_logs:
-            if isinstance(item, dict):
-                st.write(f"🍽️ {item.get('name', '未知餐點')} - {item.get('calories', 0)} kcal ({item.get('time', '')})")
+    st.subheader("📸 餐點分析")
+    meal_type = st.selectbox("選擇餐別", ["早餐", "午餐", "晚餐", "點心"])
+    uploaded_file = st.file_uploader("上傳餐點照片", type=["jpg", "jpeg", "png"])
+    user_note = st.text_input("💡 補充說明 (例如：吃了一半、加了一匙糖)")
 
-# --- 分頁 2: 記錄新餐點 (含 AI 2.5 辨識) ---
+    if uploaded_file is not None:
+        image = Image.open(uploaded_file)
+        st.image(image, caption="已上傳餐點", use_container_width=True)
+
+        if st.button("✨ AI 深度評估"):
+            with st.spinner("AI 正在結合您的個人資料進行分析..."):
+                try:
+                    p = get_user_profile(current_user_id)
+                    prompt = f"""
+                    你是一位專業營養師。請根據以下用戶個人資料分析照片中的餐點：
+                    - 用戶身型：{p['age']}歲, {p['height']}cm, {p['weight']}kg
+                    - 運動狀態：{p['activity']}
+                    - 健康備註/過敏源：{p['medical']}
+                    - 用戶補充說明：{user_note}
+                    
+                    請評估：
+                    1. 這份餐點大致包含哪些食物與營養成分？
+                    2. 這份餐點是否適合該用戶目前的身體狀態與運動習慣？
+                    3. 有無營養過剩、不足或需要注意的健康風險？
+                    """
+                    response = client.models.generate_content(
+                        model="gemini-3.6-flash", contents=[prompt, image]
+                    )
+                    st.session_state.last_analysis = response.text
+                    st.markdown(response.text)
+                except Exception as e:
+                    st.error(f"❌ 分析失敗：{e}")
+
+    if "last_analysis" in st.session_state and st.button("➕ 加入我的日誌"):
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO food_logs (user_id, date, meal_type, content, weight) VALUES (%s, %s, %s, %s, %s)",
+            (
+                current_user_id,
+                datetime.now().strftime("%Y-%m-%d %H:%M"),
+                meal_type,
+                st.session_state.last_analysis,
+                get_user_profile(current_user_id)["weight"],
+            ),
+        )
+        conn.commit()
+        c.close()
+        conn.close()
+        st.success("✅ 已存入您的個人日誌！")
+        del st.session_state.last_analysis
+
+# ------------------------------------------
+# TAB 2: 個人飲食日誌
+# ------------------------------------------
 with tab2:
-    st.subheader("📸 拍攝或上傳餐點照片")
-    uploaded_file = st.file_uploader("選擇餐點圖片", type=["jpg", "jpeg", "png"])
+    st.subheader(f"📖 {selected_username} 的飲食日誌")
+    conn = get_db_connection()
+    df = pd.read_sql(
+        "SELECT * FROM food_logs WHERE user_id = %s ORDER BY date DESC",
+        conn,
+        params=(current_user_id,)
+    )
+    conn.close()
     
-    ai_food_name = "健康餐點"
-    ai_food_cals = 500
-
-    current_api_key = manual_key if manual_key else api_key
-
-    if not current_api_key:
-        st.info("提示：若要啟用 AI 自動辨識，請在左側欄位輸入 Gemini API Key。")
+    if df.empty:
+        st.info("目前尚無您的飲食紀錄。")
     else:
-        if uploaded_file is not None:
-            st.image(uploaded_file, caption="上傳的餐點")
-            if st.button("🤖 請 AI 分析餐點熱量 (2.5 模型)"):
-                with st.spinner("AI 正在辨識您的餐點內容與熱量..."):
-                    try:
-                        genai.configure(api_key=current_api_key)
-                        model = genai.GenerativeModel('gemini-2.5-flash')
-                        bytes_data = uploaded_file.getvalue()
-                        image_part = {"mime_type": uploaded_file.type, "data": bytes_data}
-                        prompt = "請辨識這張圖片中的食物名稱，並估算它的總熱量（大卡）。請嚴格依照以下 JSON 格式回傳，不要有其他廢話：\n{\"name\": \"食物名稱\", \"calories\": 數字}"
-                        
-                        response = model.generate_content([image_part, prompt])
-                        result_text = response.text.strip()
-                        if result_text.startswith("```json"):
-                            result_text = result_text[7:]
-                        if result_text.endswith("```"):
-                            result_text = result_text[:-3]
-                        
-                        parsed = json.loads(result_text.strip())
-                        ai_food_name = parsed.get("name", "健康餐點")
-                        ai_food_cals = int(parsed.get("calories", 500))
-                        st.success(f"AI 分析完成！辨識為：{ai_food_name}，約 {ai_food_cals} 大卡")
-                    except Exception as e:
-                        st.warning(f"AI 分析時發生狀況（{e}），請直接手動修改名稱與熱量。")
+        for _, row in df.iterrows():
+            with st.expander(f"⏰ {row['date']} - 【{row['meal_type']}】"):
+                st.write(row["content"])
 
-    food_name = st.text_input("餐點名稱", value=ai_food_name)
-    food_cals = st.number_input("估算熱量 (kcal)", min_value=0, value=ai_food_cals)
-    
-    if st.button("確認記錄"):
-        new_entry = {"name": food_name, "calories": food_cals, "time": datetime.now().strftime("%H:%M")}
-        save_daily_log(today_str, new_entry)
-        st.success("成功記錄新餐點！請切換回「今日戰情室」查看。")
-
-# --- 分頁 3: 歷史日誌 ---
+# ------------------------------------------
+# TAB 3: 個人當日總結
+# ------------------------------------------
 with tab3:
-    st.subheader("📅 歷史日誌紀錄")
-    filename = "nutrition_app_data/daily_log.json"
-    if os.path.exists(filename):
-        with open(filename, "r", encoding="utf-8") as f:
-            try:
-                all_data = json.load(f)
-                st.json(all_data)
-            except:
-                st.write("目前尚無有效的歷史紀錄格式。")
-    else:
-        st.info("尚無歷史紀錄檔案。")
+    st.subheader("⊙ 飲食總結報告")
 
-# --- 分頁 4: 趨勢分析 ---
+    selected_date = st.date_input("選擇查詢日期", value=datetime.now().date())
+    target_date_str = selected_date.strftime("%Y-%m-%d")
+
+    df_sum = pd.DataFrame()
+    try:
+        conn = get_db_connection()
+        df_sum = pd.read_sql(
+            "SELECT summary FROM daily_summaries WHERE user_id = %s AND date = %s",
+            conn,
+            params=(current_user_id, target_date_str),
+        )
+        conn.close()
+    except Exception:
+        df_sum = pd.DataFrame()
+
+    if not df_sum.empty:
+        st.success(f"📌 {target_date_str} 營養總結報告：")
+        st.markdown(df_sum.iloc[0]["summary"])
+    else:
+        st.info(f"📅 尚無 {target_date_str} 的保存總結。")
+
+        conn = get_db_connection()
+        df_today = pd.read_sql(
+            "SELECT meal_type, content FROM food_logs WHERE user_id = %s AND date LIKE %s",
+            conn,
+            params=(current_user_id, f"{target_date_str}%"),
+        )
+        conn.close()
+
+        if not df_today.empty:
+            if st.button(f"📊 產出並永久保存 {target_date_str} 總結報告"):
+                with st.spinner(f"AI 正在綜整 {target_date_str} 的飲食紀錄..."):
+                    try:
+                        p = get_user_profile(current_user_id)
+                        today_logs = [
+                            f"【{row['meal_type']}】\n{row['content']}"
+                            for _, row in df_today.iterrows()
+                        ]
+                        prompt = f"""
+                        請扮演專業營養師，根據用戶資料 {p} 與以下【{target_date_str}】的所有飲食紀錄：
+                        {today_logs}
+                        
+                        請給予：
+                        1. 當日總熱量與三大營養素（蛋白質、脂肪、碳水化合物）的粗估加總。
+                        2. 當日飲食的整體優缺點（是否有營養過剩或不足）。
+                        3. 針對接下來的飲食調整建議。
+                        """
+                        response = client.models.generate_content(
+                            model="gemini-3.6-flash", contents=prompt
+                        )
+                        summary_text = response.text
+
+                        conn = get_db_connection()
+                        c = conn.cursor()
+                        c.execute(
+                            """INSERT INTO daily_summaries (user_id, date, summary) 
+                               VALUES (%s, %s, %s)
+                               ON CONFLICT (user_id, date) DO UPDATE SET summary = EXCLUDED.summary""",
+                            (current_user_id, target_date_str, summary_text),
+                        )
+                        conn.commit()
+                        c.close()
+                        conn.close()
+
+                        st.success(f"✅ {target_date_str} 總結報告已成功儲存！")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ 產生失敗：{e}")
+
+    st.markdown("---")
+    st.markdown("### 📚 歷史總結目錄總覽")
+    try:
+        conn = get_db_connection()
+        df_all_sums = pd.read_sql(
+            "SELECT date, summary FROM daily_summaries WHERE user_id = %s ORDER BY date DESC",
+            conn,
+            params=(current_user_id,)
+        )
+        conn.close()
+
+        if df_all_sums.empty:
+            st.info("目前尚無任何歷史總結紀錄。")
+        else:
+            for _, row in df_all_sums.iterrows():
+                with st.expander(f"📂 營養總結報告：{row['date']} (點擊展開)"):
+                    st.markdown(row["summary"])
+    except Exception:
+        st.info("目前尚無歷史總結目錄資料。")
+
+# ------------------------------------------
+# TAB 4: 個人設定
+# ------------------------------------------
 with tab4:
-    st.subheader("📈 熱量攝取趨勢分析")
-    st.info("這裡將會顯示您的長期熱量變化圖表。")
+    st.subheader(f"⚙️ {selected_username} 的個人檔案設定")
+    p = get_user_profile(current_user_id)
 
-# --- 底部：API 快速連線測試區 ---
-st.sidebar.markdown("---")
-if st.sidebar.button("🧪 測試 API 是否正常"):
-    if not current_api_key:
-        st.sidebar.error("❌ 尚未輸入 API Key！")
-    else:
-        try:
-            genai.configure(api_key=current_api_key)
-            test_model = genai.GenerativeModel('gemini-2.5-flash')
-            test_response = test_model.generate_content("請回覆：OK")
-            st.sidebar.success(f"✅ API 正常：{test_response.text}")
-        except Exception as e:
-            st.sidebar.error(f"❌ 失敗：{e}")
+    with st.form("profile_form"):
+        h_val = st.number_input("身高 (cm)", value=float(p["height"]))
+        w_val = st.number_input("體重 (kg)", value=float(p["weight"]))
+        a_val = st.number_input("年齡", value=int(p["age"]))
+
+        activities = ["久坐不動", "輕度運動", "中度運動", "高度運動"]
+        act_idx = activities.index(p["activity"]) if p["activity"] in activities else 2
+        act_val = st.selectbox("運動狀態", activities, index=act_idx)
+
+        med_val = st.text_area("健康備註/過敏源", value=str(p["medical"]))
+
+        submitted = st.form_submit_button("💾 儲存個人資料")
+        if submitted:
+            new_p = {
+                "height": h_val,
+                "weight": w_val,
+                "age": a_val,
+                "activity": act_val,
+                "medical": med_val,
+            }
+            update_user_profile(current_user_id, new_p)
+            st.success("✅ 個人資料已更新！")
