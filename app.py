@@ -5,6 +5,7 @@ import pandas as pd
 import psycopg2
 from PIL import Image
 import streamlit as st
+import time
 
 # ==========================================
 # 1. 頁面與 UI 樣式設定（手機端字體與排版優化）
@@ -218,6 +219,8 @@ if st.sidebar.button("建立帳號"):
 st.title(f"🥗 AI 智慧營養管家 ({selected_username})")
 tab1, tab2, tab3, tab4 = st.tabs(["📸 記錄", "📖 日誌", "🤖 當日總結", "⚙️ 設定"])
 
+import time
+
 # ------------------------------------------
 # TAB 1: 拍照與記錄
 # ------------------------------------------
@@ -233,27 +236,39 @@ with tab1:
 
         if st.button("✨ AI 深度評估"):
             with st.spinner("AI 正在結合您的個人資料進行分析..."):
-                try:
-                    p = get_user_profile(current_user_id)
-                    prompt = f"""
-                    你是一位專業營養師。請根據以下用戶個人資料分析照片中的餐點：
-                    - 用戶身型：{p['age']}歲, {p['height']}cm, {p['weight']}kg
-                    - 運動狀態：{p['activity']}
-                    - 健康備註/過敏源：{p['medical']}
-                    - 用戶補充說明：{user_note}
-                    
-                    請評估：
-                    1. 這份餐點大致包含哪些食物與營養成分？
-                    2. 這份餐點是否適合該用戶目前的身體狀態與運動習慣？
-                    3. 有無營養過剩、不足或需要注意的健康風險？
-                    """
-                    response = client.models.generate_content(
-                        model="gemini-3.6-flash", contents=[prompt, image]
-                    )
-                    st.session_state.last_analysis = response.text
-                    st.markdown(response.text)
-                except Exception as e:
-                    st.error(f"❌ 分析失敗：{e}")
+                p = get_user_profile(current_user_id)
+                prompt = f"""
+                你是一位專業營養師。請根據以下用戶個人資料分析照片中的餐點：
+                - 用戶身型：{p['age']}歲, {p['height']}cm, {p['weight']}kg
+                - 運動狀態：{p['activity']}
+                - 健康備註/過敏源：{p['medical']}
+                - 用戶補充說明：{user_note}
+                
+                請評估：
+                1. 這份餐點大致包含哪些食物與營養成分？
+                2. 這份餐點是否適合該用戶目前的身體狀態與運動習慣？
+                3. 有無營養過剩、不足或需要注意的健康風險？
+                """
+                
+                # 自動重試機制 (最多重試 3 次)
+                max_retries = 3
+                success = False
+                
+                for attempt in range(max_retries):
+                    try:
+                        response = client.models.generate_content(
+                            model="gemini-2.5-flash", contents=[prompt, image]
+                        )
+                        st.session_state.last_analysis = response.text
+                        st.markdown(response.text)
+                        success = True
+                        break
+                    except Exception as e:
+                        if "503" in str(e) and attempt < max_retries - 1:
+                            time.sleep(2)  # 等待 2 秒後自動重試
+                            continue
+                        else:
+                            st.error(f"❌ 分析失敗：{e} (請稍後重新點擊評估)")
 
     if "last_analysis" in st.session_state and st.button("➕ 加入我的日誌"):
         conn = get_db_connection()
