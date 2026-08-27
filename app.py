@@ -362,7 +362,7 @@ with tab3:
                         3. 針對接下來的飲食調整建議。
                         """
                         response = client.models.generate_content(
-                            model="gemini-2.5-flash", contents=prompt
+                            model="gemini-3.6-flash", contents=prompt
                         )
                         summary_text = response.text
 
