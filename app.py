@@ -1,24 +1,24 @@
-from datetime import datetime
 import os
+from datetime import datetime
 from google import genai
 import pandas as pd
 import psycopg2
-import streamlit as st
 from PIL import Image
+import streamlit as st
 
 # ==========================================
-# 1. 頁面與 UI 樣式設定
+# 1. 頁面與 UI 樣式設定（手機端字體與排版優化）
 # ==========================================
 st.set_page_config(page_title="AI 智慧營養管家", page_icon="🥗", layout="centered")
 
 st.markdown(
     """
     <style>
-    /* 全域基礎字型改為舒適的 16px */
+    /* 全域基礎字型縮小至舒適適中的 16px */
     html, body, [class*="css"] { font-size: 16px !important; }
     .stApp { background-color: #f5f7f9; }
     
-    /* 卡片容器間距優化 */
+    /* 卡片容器內邊距與邊框優化 */
     div[data-testid="stVerticalBlock"] { 
         background-color: white; 
         border-radius: 16px; 
@@ -27,39 +27,40 @@ st.markdown(
     }
     
     /* 標題層級縮放 */
-    h1 { font-size: 28px !important; }
-    h2 { font-size: 22px !important; }
-    h3 { font-size: 18px !important; }
+    h1 { font-size: 26px !important; font-weight: bold !important; }
+    h2 { font-size: 20px !important; font-weight: bold !important; }
+    h3 { font-size: 17px !important; font-weight: bold !important; }
     
     /* 分頁頁籤 (Tabs) */
-    .stTabs [data-baseweb="tab"] p { font-size: 18px !important; font-weight: bold !important; }
+    .stTabs [data-baseweb="tab"] p { font-size: 16px !important; font-weight: bold !important; }
     
-    /* 按鈕大小與內邊距 */
+    /* 按鈕大小與內邊距調整 */
     .stButton>button { 
         width: 100%; 
         border-radius: 12px; 
         background-color: #2ecc71; 
         color: white; 
         font-weight: bold; 
-        font-size: 18px !important; 
+        font-size: 16px !important; 
         padding: 10px 16px; 
     }
     
-    /* 輸入框、下拉選單與摺疊區塊 */
-    input, select, textarea, div[data-baseweb="select"] span { font-size: 16px !important; }
-    div[data-baseweb="popover"] div { font-size: 16px !important; }
-    .streamlit-expanderHeader p { font-size: 16px !important; font-weight: bold !important; }
+    /* 輸入框、下拉選單與摺疊區塊微調 */
+    input, select, textarea, div[data-baseweb="select"] span { font-size: 15px !important; }
+    div[data-baseweb="popover"] div { font-size: 15px !important; }
+    .streamlit-expanderHeader p { font-size: 15px !important; font-weight: bold !important; }
     [data-testid="stSidebar"] { background-color: #eef2f5; }
     </style>
 """,
     unsafe_allow_html=True,
 )
+
 # ==========================================
 # 2. 系統統一載入 API 與資料庫初始化
 # ==========================================
 api_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
 if not api_key:
-    st.error("❌ 系統尚未設定 GEMINI_API_KEY，請在 Secrets 中設定。")
+    st.error("❌ 系統尚未設定 GEMINI_API_KEY，請在 Streamlit Secrets 中設定。")
     st.stop()
 
 client = genai.Client(api_key=api_key)
@@ -105,7 +106,7 @@ def init_db():
         c.execute("INSERT INTO users (username) VALUES (%s) RETURNING id", ("預設使用者",))
         default_id = c.fetchone()[0]
         c.execute(
-            "INSERT INTO user_profile (user_id, height, weight, age, activity, medical) VALUES (%s, 175.0, 70.0, 30, '中度運動', '無')",
+            "INSERT INTO user_profile (user_id, height, weight, age, activity, medical) VALUES (%s, 170.0, 65.0, 30, '中度運動', '無')",
             (default_id,)
         )
     conn.commit()
@@ -115,13 +116,16 @@ def init_db():
 init_db()
 
 # ==========================================
-# 3. 資料庫獨立查詢與操作
+# 3. 資料庫獨立查詢與操作 (原生 SQL + 精準型態轉換)
 # ==========================================
 def get_all_users():
     conn = get_db_connection()
-    df = pd.read_sql("SELECT id, username FROM users ORDER BY id ASC", conn)
+    c = conn.cursor()
+    c.execute("SELECT id, username FROM users ORDER BY id ASC")
+    rows = c.fetchall()
+    c.close()
     conn.close()
-    return df
+    return pd.DataFrame(rows, columns=["id", "username"])
 
 def create_user(username):
     conn = get_db_connection()
@@ -145,11 +149,17 @@ def create_user(username):
 
 def get_user_profile(user_id):
     conn = get_db_connection()
-    df = pd.read_sql("SELECT * FROM user_profile WHERE user_id=%s", conn, params=(user_id,))
+    c = conn.cursor()
+    c.execute(
+        "SELECT height, weight, age, activity, medical FROM user_profile WHERE user_id = %s", 
+        (int(user_id),)
+    )
+    row = c.fetchone()
+    c.close()
     conn.close()
-    if df.empty:
+    if not row:
         return {"height": 170.0, "weight": 65.0, "age": 30, "activity": "中度運動", "medical": "無"}
-    return df.iloc[0].to_dict()
+    return {"height": row[0], "weight": row[1], "age": row[2], "activity": row[3], "medical": row[4]}
 
 def update_user_profile(user_id, data):
     conn = get_db_connection()
@@ -158,22 +168,38 @@ def update_user_profile(user_id, data):
         """UPDATE user_profile 
            SET height=%s, weight=%s, age=%s, activity=%s, medical=%s 
            WHERE user_id=%s""",
-        (data["height"], data["weight"], data["age"], data["activity"], data["medical"], user_id)
+        (data["height"], data["weight"], data["age"], data["activity"], data["medical"], int(user_id))
     )
     conn.commit()
     c.close()
     conn.close()
 
 # ==========================================
-# 4. 側邊欄：身份切換 (不需輸入 API Key)
+# 4. 側邊欄：身份切換 (解決選單重置與個資錯亂)
 # ==========================================
 st.sidebar.title("👤 使用者帳號")
 
 users_df = get_all_users()
-user_list = users_df["username"].tolist()
+user_dict = dict(zip(users_df["username"], users_df["id"]))
+user_list = list(user_dict.keys())
 
-selected_username = st.sidebar.selectbox("選擇您的帳號", user_list)
-current_user_id = int(users_df[users_df["username"] == selected_username]["id"].values[0])
+# 初始化 Session State
+if "current_user_id" not in st.session_state or st.session_state.current_user_id not in user_dict.values():
+    st.session_state.current_user_id = int(user_dict[user_list[0]])
+
+# 找出目前選取的名稱 index
+current_name = [name for name, uid in user_dict.items() if uid == st.session_state.current_user_id]
+default_idx = user_list.index(current_name[0]) if current_name else 0
+
+selected_username = st.sidebar.selectbox(
+    "選擇您的帳號", 
+    user_list, 
+    index=default_idx
+)
+
+# 確保 current_user_id 隨選單即時更新
+st.session_state.current_user_id = int(user_dict[selected_username])
+current_user_id = st.session_state.current_user_id
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("➕ 新增親友帳號")
@@ -182,7 +208,8 @@ if st.sidebar.button("建立帳號"):
     if new_user_input.strip():
         new_id = create_user(new_user_input.strip())
         if new_id:
-            st.sidebar.success(f"✅ 已建立：{new_user_input}")
+            st.session_state.current_user_id = new_id
+            st.sidebar.success(f"✅ 已建立並切換至：{new_user_input}")
             st.rerun()
 
 # ==========================================
@@ -221,7 +248,7 @@ with tab1:
                     3. 有無營養過剩、不足或需要注意的健康風險？
                     """
                     response = client.models.generate_content(
-                        model="gemini-3.6-flash", contents=[prompt, image]
+                        model="gemini-2.5-flash", contents=[prompt, image]
                     )
                     st.session_state.last_analysis = response.text
                     st.markdown(response.text)
@@ -234,7 +261,7 @@ with tab1:
         c.execute(
             "INSERT INTO food_logs (user_id, date, meal_type, content, weight) VALUES (%s, %s, %s, %s, %s)",
             (
-                current_user_id,
+                int(current_user_id),
                 datetime.now().strftime("%Y-%m-%d %H:%M"),
                 meal_type,
                 st.session_state.last_analysis,
@@ -253,67 +280,66 @@ with tab1:
 with tab2:
     st.subheader(f"📖 {selected_username} 的飲食日誌")
     conn = get_db_connection()
-    df = pd.read_sql(
-        "SELECT * FROM food_logs WHERE user_id = %s ORDER BY date DESC",
-        conn,
-        params=(current_user_id,)
+    c = conn.cursor()
+    c.execute(
+        "SELECT date, meal_type, content FROM food_logs WHERE user_id = %s ORDER BY date DESC",
+        (int(current_user_id),)
     )
+    rows = c.fetchall()
+    c.close()
     conn.close()
     
-    if df.empty:
+    if not rows:
         st.info("目前尚無您的飲食紀錄。")
     else:
-        for _, row in df.iterrows():
-            with st.expander(f"⏰ {row['date']} - 【{row['meal_type']}】"):
-                st.write(row["content"])
+        for row in rows:
+            with st.expander(f"⏰ {row[0]} - 【{row[1]}】"):
+                st.write(row[2])
 
 # ------------------------------------------
-# TAB 3: 個人當日總結
+# TAB 3: 個人當日總結與歷史總結
 # ------------------------------------------
 with tab3:
-    st.subheader("⊙ 飲食總結報告")
+    st.subheader("📊 飲食總結報告")
 
     selected_date = st.date_input("選擇查詢日期", value=datetime.now().date())
     target_date_str = selected_date.strftime("%Y-%m-%d")
 
-    df_sum = pd.DataFrame()
-    try:
-        conn = get_db_connection()
-        df_sum = pd.read_sql(
-            "SELECT summary FROM daily_summaries WHERE user_id = %s AND date = %s",
-            conn,
-            params=(current_user_id, target_date_str),
-        )
-        conn.close()
-    except Exception:
-        df_sum = pd.DataFrame()
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute(
+        "SELECT summary FROM daily_summaries WHERE user_id = %s AND date = %s",
+        (int(current_user_id), target_date_str)
+    )
+    sum_row = c.fetchone()
+    c.close()
+    conn.close()
 
-    if not df_sum.empty:
+    if sum_row:
         st.success(f"📌 {target_date_str} 營養總結報告：")
-        st.markdown(df_sum.iloc[0]["summary"])
+        st.markdown(sum_row[0])
     else:
         st.info(f"📅 尚無 {target_date_str} 的保存總結。")
 
         conn = get_db_connection()
-        df_today = pd.read_sql(
+        c = conn.cursor()
+        c.execute(
             "SELECT meal_type, content FROM food_logs WHERE user_id = %s AND date LIKE %s",
-            conn,
-            params=(current_user_id, f"{target_date_str}%"),
+            (int(current_user_id), f"{target_date_str}%")
         )
+        today_logs = c.fetchall()
+        c.close()
         conn.close()
 
-        if not df_today.empty:
+        if today_logs:
             if st.button(f"📊 產出並永久保存 {target_date_str} 總結報告"):
                 with st.spinner(f"AI 正在綜整 {target_date_str} 的飲食紀錄..."):
                     try:
                         p = get_user_profile(current_user_id)
-                        today_logs = [
-                            f"【{row['meal_type']}】\n{row['content']}"
-                            for _, row in df_today.iterrows()
-                        ]
+                        log_text = "\n".join([f"【{row[0]}】\n{row[1]}" for row in today_logs])
                         prompt = f"""
                         請扮演專業營養師，根據用戶資料 {p} 與以下【{target_date_str}】的所有飲食紀錄：
-                        {today_logs}
+                        {log_text}
                         
                         請給予：
                         1. 當日總熱量與三大營養素（蛋白質、脂肪、碳水化合物）的粗估加總。
@@ -321,7 +347,7 @@ with tab3:
                         3. 針對接下來的飲食調整建議。
                         """
                         response = client.models.generate_content(
-                            model="gemini-3.6-flash", contents=prompt
+                            model="gemini-2.5-flash", contents=prompt
                         )
                         summary_text = response.text
 
@@ -331,7 +357,7 @@ with tab3:
                             """INSERT INTO daily_summaries (user_id, date, summary) 
                                VALUES (%s, %s, %s)
                                ON CONFLICT (user_id, date) DO UPDATE SET summary = EXCLUDED.summary""",
-                            (current_user_id, target_date_str, summary_text),
+                            (int(current_user_id), target_date_str, summary_text),
                         )
                         conn.commit()
                         c.close()
@@ -341,26 +367,27 @@ with tab3:
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ 產生失敗：{e}")
+        else:
+            st.caption("（該日期尚無飲食記錄，無法產出總結）")
 
     st.markdown("---")
     st.markdown("### 📚 歷史總結目錄總覽")
-    try:
-        conn = get_db_connection()
-        df_all_sums = pd.read_sql(
-            "SELECT date, summary FROM daily_summaries WHERE user_id = %s ORDER BY date DESC",
-            conn,
-            params=(current_user_id,)
-        )
-        conn.close()
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute(
+        "SELECT date, summary FROM daily_summaries WHERE user_id = %s ORDER BY date DESC",
+        (int(current_user_id),)
+    )
+    hist_rows = c.fetchall()
+    c.close()
+    conn.close()
 
-        if df_all_sums.empty:
-            st.info("目前尚無任何歷史總結紀錄。")
-        else:
-            for _, row in df_all_sums.iterrows():
-                with st.expander(f"📂 營養總結報告：{row['date']} (點擊展開)"):
-                    st.markdown(row["summary"])
-    except Exception:
-        st.info("目前尚無歷史總結目錄資料。")
+    if not hist_rows:
+        st.info("目前尚無任何歷史總結紀錄。")
+    else:
+        for h_row in hist_rows:
+            with st.expander(f"📂 營養總結報告：{h_row[0]} (點擊展開)"):
+                st.markdown(h_row[1])
 
 # ------------------------------------------
 # TAB 4: 個人設定
