@@ -248,7 +248,7 @@ with tab1:
                     3. 有無營養過剩、不足或需要注意的健康風險？
                     """
                     response = client.models.generate_content(
-                        model="gemini-2.5-flash", contents=[prompt, image]
+                        model="gemini-3.6-flash", contents=[prompt, image]
                     )
                     st.session_state.last_analysis = response.text
                     st.markdown(response.text)
