@@ -257,7 +257,7 @@ with tab1:
                 for attempt in range(max_retries):
                     try:
                         response = client.models.generate_content(
-                            model="gemini-2.5-flash", contents=[prompt, image]
+                            model="gemini-3.6-flash", contents=[prompt, image]
                         )
                         st.session_state.last_analysis = response.text
                         st.markdown(response.text)
