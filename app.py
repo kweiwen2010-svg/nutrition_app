@@ -8,7 +8,7 @@ import streamlit as st
 import time
 
 # ==========================================
-# 1. 頁面與 UI 樣式設定（手機端字體與排版優化）
+# 1. 頁面與 UI 樣式設定（優化手機端與側欄按鈕）
 # ==========================================
 st.set_page_config(page_title="AI 智慧營養管家", page_icon="🥗", layout="centered")
 
@@ -19,6 +19,20 @@ st.markdown(
     html, body, [class*="css"] { font-size: 16px !important; }
     .stApp { background-color: #f5f7f9; }
     
+    /* 放大並突顯手機端的側欄收合/展開按鈕 (>> / <<) */
+    button[kind="header"] {
+        background-color: #2ecc71 !important;
+        color: white !important;
+        border-radius: 8px !important;
+        padding: 4px 8px !important;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2) !important;
+    }
+    button[kind="header"] svg {
+        fill: white !important;
+        width: 24px !important;
+        height: 24px !important;
+    }
+
     /* 卡片容器內邊距與邊框優化 */
     div[data-testid="stVerticalBlock"] { 
         background-color: white; 
@@ -82,7 +96,6 @@ def init_db():
             username TEXT UNIQUE NOT NULL
         )
     """)
-    # 檢查並確保 users 表有連續登入追蹤欄位
     try:
         c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS streak_days INTEGER DEFAULT 0;")
         c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_date TEXT;")
@@ -103,7 +116,6 @@ def init_db():
             date TEXT, meal_type TEXT, content TEXT, weight REAL
         )
     """)
-    # 確保 food_logs 有 100 分制的 score 欄位
     try:
         c.execute("ALTER TABLE food_logs ADD COLUMN IF NOT EXISTS score INTEGER;")
         conn.commit()
@@ -132,7 +144,7 @@ def init_db():
 init_db()
 
 # ==========================================
-# 3. 資料庫獨立查詢與操作 (原生 SQL + 遊戲化 Streak 邏輯)
+# 3. 資料庫獨立查詢與操作
 # ==========================================
 def get_all_users():
     conn = get_db_connection()
@@ -191,7 +203,6 @@ def update_user_profile(user_id, data):
     conn.close()
 
 def update_user_streak(user_id):
-    """更新遊戲化連續使用天數 (Streak)"""
     today_str = date.today().strftime("%Y-%m-%d")
     conn = get_db_connection()
     c = conn.cursor()
@@ -205,7 +216,6 @@ def update_user_streak(user_id):
     streak, last_date = row[0] or 0, row[1]
     
     if last_date == today_str:
-        # 今天已經記錄過了，保持不變
         c.close()
         conn.close()
         return streak
@@ -216,7 +226,7 @@ def update_user_streak(user_id):
         if delta_days == 1:
             streak += 1
         elif delta_days > 1:
-            streak = 1 # 超過一天沒用，重新計算
+            streak = 1
     else:
         streak = 1
         
@@ -259,7 +269,6 @@ selected_username = st.sidebar.selectbox(
 st.session_state.current_user_id = int(user_dict[selected_username])
 current_user_id = st.session_state.current_user_id
 
-# 🎮 遊戲化：側邊欄顯示連續使用天數成就徽章
 current_streak = get_user_streak(current_user_id)
 st.sidebar.markdown("---")
 st.sidebar.markdown(f"### 🔥 連續打卡成就")
@@ -283,7 +292,7 @@ st.title(f"🥗 AI 智慧營養管家 ({selected_username})")
 tab1, tab2, tab3, tab4 = st.tabs(["📸 記錄", "📖 日誌", "🤖 當日總結", "⚙️ 設定"])
 
 # ------------------------------------------
-# TAB 1: 拍照與記錄（含 100分制、稱讚/噓聲與詳細分析）
+# TAB 1: 拍照與記錄
 # ------------------------------------------
 with tab1:
     st.subheader("📸 餐點分析與 100 分制評分")
@@ -327,14 +336,13 @@ with tab1:
                         )
                         st.session_state.last_analysis = response.text
                         
-                        # 從回傳文字中解析出 100 分制的數字
                         import re
                         score_match = re.search(r'(\d{1,3})\s*分', response.text)
                         if score_match:
                             parsed_score = int(score_match.group(1))
                             st.session_state.last_score = min(max(parsed_score, 0), 100)
                         else:
-                            st.session_state.last_score = 75  # 預設值
+                            st.session_state.last_score = 75
                             
                         st.markdown(response.text)
                         success = True
@@ -364,7 +372,6 @@ with tab1:
         c.close()
         conn.close()
         
-        # 成功記錄後更新連續天數 Streak
         new_streak = update_user_streak(current_user_id)
         st.success(f"✅ 已存入您的個人日誌！🔥 連續打卡天數已更新為：{new_streak} 天！")
         
@@ -374,7 +381,7 @@ with tab1:
         st.rerun()
 
 # ------------------------------------------
-# TAB 2: 個人飲食日誌（顯示 100 分制分數）
+# TAB 2: 個人飲食日誌
 # ------------------------------------------
 with tab2:
     st.subheader(f"📖 {selected_username} 的飲食日誌")
@@ -394,7 +401,6 @@ with tab2:
         for row in rows:
             date_str, meal_type_str, content_str, score_val = row[0], row[1], row[2], row[3]
             
-            # 根據 100 分制顯示對應表情符號與標籤
             if score_val is not None:
                 if score_val >= 80:
                     badge = f"🌟 【{score_val}分 - 優秀！】"
