@@ -8,7 +8,7 @@ import streamlit as st
 import time
 
 # ==========================================
-# 1. 頁面與 UI 樣式設定（優化手機端與側欄按鈕）
+# 1. 頁面與 UI 樣式設定（手機端字體與側欄開關優化）
 # ==========================================
 st.set_page_config(page_title="AI 智慧營養管家", page_icon="🥗", layout="centered")
 
@@ -19,18 +19,19 @@ st.markdown(
     html, body, [class*="css"] { font-size: 16px !important; }
     .stApp { background-color: #f5f7f9; }
     
-    /* 放大並突顯手機端的側欄收合/展開按鈕 (>> / <<) */
-    button[kind="header"] {
+    /* 強力突顯手機端與網頁端的側欄展開/收合按鈕 (collapsedControl) */
+    [data-testid="collapsedControl"] {
         background-color: #2ecc71 !important;
         color: white !important;
-        border-radius: 8px !important;
-        padding: 4px 8px !important;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.2) !important;
+        border-radius: 12px !important;
+        padding: 8px !important;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3) !important;
+        border: 2px solid white !important;
     }
-    button[kind="header"] svg {
+    [data-testid="collapsedControl"] svg {
         fill: white !important;
-        width: 24px !important;
-        height: 24px !important;
+        width: 26px !important;
+        height: 26px !important;
     }
 
     /* 卡片容器內邊距與邊框優化 */
@@ -128,6 +129,11 @@ def init_db():
             date TEXT, summary TEXT, PRIMARY KEY (user_id, date)
         )
     """)
+    try:
+        c.execute("ALTER TABLE daily_summaries ADD COLUMN IF NOT EXISTS score INTEGER;")
+        conn.commit()
+    except Exception:
+        conn.rollback()
     
     c.execute("SELECT COUNT(*) FROM users")
     if c.fetchone()[0] == 0:
@@ -292,7 +298,7 @@ st.title(f"🥗 AI 智慧營養管家 ({selected_username})")
 tab1, tab2, tab3, tab4 = st.tabs(["📸 記錄", "📖 日誌", "🤖 當日總結", "⚙️ 設定"])
 
 # ------------------------------------------
-# TAB 1: 拍照與記錄
+# TAB 1: 拍照與記錄（含 100分制、稱讚/噓聲與詳細分析）
 # ------------------------------------------
 with tab1:
     st.subheader("📸 餐點分析與 100 分制評分")
@@ -317,7 +323,7 @@ with tab1:
                 請嚴格依照以下格式輸出：
                 1.【健康評分】：請給予一個 0 到 100 分的整數分數（格式範例：85 分 或 55 分）。
                 2.【教練評語】：
-                   - 若分數 >= 80 分：請給予熱情洋溢、大肆稱讚的誇獎與鼓勵！
+                   - 若分數 >= 80 分：請給予熱情洋洋、大肆稱讚的誇獎與鼓勵！
                    - 若分數在 60 ~ 79 分：給予客觀中立的建議。
                    - 若分數 < 60 分：請給予帶有幽默「噓聲」與嚴格警示的吐槽（例如：boo~ 怎麼這樣吃！）。
                 3.【餐點內容與營養分析】：
@@ -415,7 +421,7 @@ with tab2:
                 st.write(content_str)
 
 # ------------------------------------------
-# TAB 3: 個人當日總結與歷史總結
+# TAB 3: 個人當日總結與歷史總結（含總結評分與動態回饋）
 # ------------------------------------------
 with tab3:
     st.subheader("📊 飲食總結報告")
@@ -426,7 +432,7 @@ with tab3:
     conn = get_db_connection()
     c = conn.cursor()
     c.execute(
-        "SELECT summary FROM daily_summaries WHERE user_id = %s AND date = %s",
+        "SELECT summary, score FROM daily_summaries WHERE user_id = %s AND date = %s",
         (int(current_user_id), target_date_str)
     )
     sum_row = c.fetchone()
@@ -434,8 +440,19 @@ with tab3:
     conn.close()
 
     if sum_row:
-        st.success(f"📌 {target_date_str} 營養總結報告：")
-        st.markdown(sum_row[0])
+        summary_text, summary_score = sum_row[0], sum_row[1]
+        if summary_score is not None:
+            if summary_score >= 80:
+                score_badge = f"🌟 【當日總結評分：{summary_score}分 - 表現優秀！太棒啦👏】"
+            elif summary_score >= 60:
+                score_badge = f"👍 【當日總結評分：{summary_score}分 - 表現平穩，再接再厲💪】"
+            else:
+                score_badge = f"👎 【當日總結評分：{summary_score}分 - Boo~ 今日飲食不及格喔👎】"
+        else:
+            score_badge = "📌 當日營養總結報告："
+
+        st.success(score_badge)
+        st.markdown(summary_text)
     else:
         st.info(f"📅 尚無 {target_date_str} 的保存總結。")
 
@@ -450,39 +467,51 @@ with tab3:
         conn.close()
 
         if today_logs:
-            if st.button(f"📊 產出並永久保存 {target_date_str} 總結報告"):
-                with st.spinner(f"AI 正在綜整 {target_date_str} 的飲食紀錄與 100 分制表現..."):
+            if st.button(f"📊 產出並永久保存 {target_date_str} 總結報告（含 100 分制總評）"):
+                with st.spinner(f"AI 正在綜整 {target_date_str} 的飲食紀錄與總結評分中..."):
                     try:
                         p = get_user_profile(current_user_id)
                         log_text = "\n".join([f"【{row[0]}】(100分制評分: {row[2]}分)\n{row[1]}" for row in today_logs])
                         prompt = f"""
-                        請扮演專業營養師，根據用戶資料 {p} 與以下【{target_date_str}】的所有飲食紀錄（包含各餐 100 分制評分）：
+                        請扮演專業營養師兼嚴格又幽默的健康教練，根據用戶資料 {p} 與以下【{target_date_str}】的所有飲食紀錄（包含各餐 100 分制評分）：
                         {log_text}
                         
-                        請給予完整詳盡的總結：
-                        1. 當日整體的平均分數與表現評價。
-                        2. 當日總熱量與三大營養素（蛋白質、脂肪、碳水化合物）的粗估加總。
-                        3. 當日飲食的整體優缺點（營養過剩或不足之處）。
-                        4. 針對接下來的飲食調整建議。
+                        請嚴格依照以下格式輸出總結報告：
+                        1.【當日綜合評分】：請給予一個 0 到 100 分的整數總分（格式範例：88 分 或 52 分）。
+                        2.【教練總評語】：
+                           - 若總分 >= 80 分：熱情洋溢、大肆稱讚！
+                           - 若總分在 60 ~ 79 分：客觀中立建議。
+                           - 若總分 < 60 分：給予幽默「噓聲」與警示（例如：boo~ 今天吃得很不理想喔！）。
+                        3.【營養與熱量分析】：當日總熱量與三大營養素（蛋白質、脂肪、碳水化合物）的粗估加總。
+                        4.【飲食調整建議】：針對接下來幾天飲食的具體改善建議。
                         """
                         response = client.models.generate_content(
                             model="gemini-3.6-flash", contents=prompt
                         )
                         summary_text = response.text
 
+                        # 從回傳內容中解析出總分
+                        import re
+                        score_match = re.search(r'(\d{1,3})\s*分', response.text)
+                        if score_match:
+                            daily_score = int(score_match.group(1))
+                            daily_score = min(max(daily_score, 0), 100)
+                        else:
+                            daily_score = 75
+
                         conn = get_db_connection()
                         c = conn.cursor()
                         c.execute(
-                            """INSERT INTO daily_summaries (user_id, date, summary) 
-                               VALUES (%s, %s, %s)
-                               ON CONFLICT (user_id, date) DO UPDATE SET summary = EXCLUDED.summary""",
-                            (int(current_user_id), target_date_str, summary_text),
+                            """INSERT INTO daily_summaries (user_id, date, summary, score) 
+                               VALUES (%s, %s, %s, %s)
+                               ON CONFLICT (user_id, date) DO UPDATE SET summary = EXCLUDED.summary, score = EXCLUDED.score""",
+                            (int(current_user_id), target_date_str, summary_text, daily_score),
                         )
                         conn.commit()
                         c.close()
                         conn.close()
 
-                        st.success(f"✅ {target_date_str} 總結報告已成功儲存！")
+                        st.success(f"✅ {target_date_str} 總結報告與評分已成功儲存！")
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ 產生失敗：{e}")
@@ -494,7 +523,7 @@ with tab3:
     conn = get_db_connection()
     c = conn.cursor()
     c.execute(
-        "SELECT date, summary FROM daily_summaries WHERE user_id = %s ORDER BY date DESC",
+        "SELECT date, summary, score FROM daily_summaries WHERE user_id = %s ORDER BY date DESC",
         (int(current_user_id),)
     )
     hist_rows = c.fetchall()
@@ -505,8 +534,10 @@ with tab3:
         st.info("目前尚無任何歷史總結紀錄。")
     else:
         for h_row in hist_rows:
-            with st.expander(f"📂 營養總結報告：{h_row[0]} (點擊展開)"):
-                st.markdown(h_row[1])
+            h_date, h_sum, h_score = h_row[0], h_row[1], h_row[2]
+            score_label = f" (總評: {h_score}分)" if h_score is not None else ""
+            with st.expander(f"📂 營養總結報告：{h_date}{score_label} (點擊展開)"):
+                st.markdown(h_sum)
 
 # ------------------------------------------
 # TAB 4: 個人設定
