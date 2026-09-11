@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, date
 from google import genai
 import pandas as pd
 import psycopg2
@@ -82,6 +82,14 @@ def init_db():
             username TEXT UNIQUE NOT NULL
         )
     """)
+    # 檢查並確保 users 表有連續登入追蹤欄位
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS streak_days INTEGER DEFAULT 0;")
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_date TEXT;")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS user_profile (
             user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -95,6 +103,13 @@ def init_db():
             date TEXT, meal_type TEXT, content TEXT, weight REAL
         )
     """)
+    # 確保 food_logs 有 100 分制的 score 欄位
+    try:
+        c.execute("ALTER TABLE food_logs ADD COLUMN IF NOT EXISTS score INTEGER;")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS daily_summaries (
             user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -104,7 +119,7 @@ def init_db():
     
     c.execute("SELECT COUNT(*) FROM users")
     if c.fetchone()[0] == 0:
-        c.execute("INSERT INTO users (username) VALUES (%s) RETURNING id", ("預設使用者",))
+        c.execute("INSERT INTO users (username, streak_days) VALUES (%s, %s) RETURNING id", ("預設使用者", 0))
         default_id = c.fetchone()[0]
         c.execute(
             "INSERT INTO user_profile (user_id, height, weight, age, activity, medical) VALUES (%s, 170.0, 65.0, 30, '中度運動', '無')",
@@ -117,22 +132,22 @@ def init_db():
 init_db()
 
 # ==========================================
-# 3. 資料庫獨立查詢與操作 (原生 SQL + 精準型態轉換)
+# 3. 資料庫獨立查詢與操作 (原生 SQL + 遊戲化 Streak 邏輯)
 # ==========================================
 def get_all_users():
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT id, username FROM users ORDER BY id ASC")
+    c.execute("SELECT id, username, COALESCE(streak_days, 0) FROM users ORDER BY id ASC")
     rows = c.fetchall()
     c.close()
     conn.close()
-    return pd.DataFrame(rows, columns=["id", "username"])
+    return pd.DataFrame(rows, columns=["id", "username", "streak_days"])
 
 def create_user(username):
     conn = get_db_connection()
     c = conn.cursor()
     try:
-        c.execute("INSERT INTO users (username) VALUES (%s) RETURNING id", (username,))
+        c.execute("INSERT INTO users (username, streak_days) VALUES (%s, 0) RETURNING id", (username,))
         new_id = c.fetchone()[0]
         c.execute(
             "INSERT INTO user_profile (user_id, height, weight, age, activity, medical) VALUES (%s, 170.0, 65.0, 30, '中度運動', '無')",
@@ -175,8 +190,53 @@ def update_user_profile(user_id, data):
     c.close()
     conn.close()
 
+def update_user_streak(user_id):
+    """更新遊戲化連續使用天數 (Streak)"""
+    today_str = date.today().strftime("%Y-%m-%d")
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT streak_days, last_active_date FROM users WHERE id = %s", (int(user_id),))
+    row = c.fetchone()
+    if not row:
+        c.close()
+        conn.close()
+        return 0
+    
+    streak, last_date = row[0] or 0, row[1]
+    
+    if last_date == today_str:
+        # 今天已經記錄過了，保持不變
+        c.close()
+        conn.close()
+        return streak
+    
+    if last_date:
+        last_d = datetime.strptime(last_date, "%Y-%m-%d").date()
+        delta_days = (date.today() - last_d).days
+        if delta_days == 1:
+            streak += 1
+        elif delta_days > 1:
+            streak = 1 # 超過一天沒用，重新計算
+    else:
+        streak = 1
+        
+    c.execute("UPDATE users SET streak_days = %s, last_active_date = %s WHERE id = %s", (streak, today_str, int(user_id)))
+    conn.commit()
+    c.close()
+    conn.close()
+    return streak
+
+def get_user_streak(user_id):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT COALESCE(streak_days, 0) FROM users WHERE id = %s", (int(user_id),))
+    row = c.fetchone()
+    c.close()
+    conn.close()
+    return row[0] if row else 0
+
 # ==========================================
-# 4. 側邊欄：身份切換 (解決選單重置與個資錯亂)
+# 4. 側邊欄：身份切換與遊戲化連續天數儀表板
 # ==========================================
 st.sidebar.title("👤 使用者帳號")
 
@@ -184,11 +244,9 @@ users_df = get_all_users()
 user_dict = dict(zip(users_df["username"], users_df["id"]))
 user_list = list(user_dict.keys())
 
-# 初始化 Session State
 if "current_user_id" not in st.session_state or st.session_state.current_user_id not in user_dict.values():
     st.session_state.current_user_id = int(user_dict[user_list[0]])
 
-# 找出目前選取的名稱 index
 current_name = [name for name, uid in user_dict.items() if uid == st.session_state.current_user_id]
 default_idx = user_list.index(current_name[0]) if current_name else 0
 
@@ -198,9 +256,14 @@ selected_username = st.sidebar.selectbox(
     index=default_idx
 )
 
-# 確保 current_user_id 隨選單即時更新
 st.session_state.current_user_id = int(user_dict[selected_username])
 current_user_id = st.session_state.current_user_id
+
+# 🎮 遊戲化：側邊欄顯示連續使用天數成就徽章
+current_streak = get_user_streak(current_user_id)
+st.sidebar.markdown("---")
+st.sidebar.markdown(f"### 🔥 連續打卡成就")
+st.sidebar.info(f"**{selected_username}** 目前已連續使用 **{current_streak} 天**！\n\nkeep going! 保持健康好習慣 💪")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("➕ 新增親友帳號")
@@ -219,13 +282,11 @@ if st.sidebar.button("建立帳號"):
 st.title(f"🥗 AI 智慧營養管家 ({selected_username})")
 tab1, tab2, tab3, tab4 = st.tabs(["📸 記錄", "📖 日誌", "🤖 當日總結", "⚙️ 設定"])
 
-import time
-
 # ------------------------------------------
-# TAB 1: 拍照與記錄
+# TAB 1: 拍照與記錄（含 100分制、稱讚/噓聲與詳細分析）
 # ------------------------------------------
 with tab1:
-    st.subheader("📸 餐點分析")
+    st.subheader("📸 餐點分析與 100 分制評分")
     meal_type = st.selectbox("選擇餐別", ["早餐", "午餐", "晚餐", "點心"])
     uploaded_file = st.file_uploader("上傳餐點照片", type=["jpg", "jpeg", "png"])
     user_note = st.text_input("💡 補充說明 (例如：吃了一半、加了一匙糖)")
@@ -234,23 +295,28 @@ with tab1:
         image = Image.open(uploaded_file)
         st.image(image, caption="已上傳餐點", use_container_width=True)
 
-        if st.button("✨ AI 深度評估"):
-            with st.spinner("AI 正在結合您的個人資料進行分析..."):
+        if st.button("✨ AI 深度評估與 100 分制評比"):
+            with st.spinner("AI 正在結合您的個人資料進行深度分析與評分中..."):
                 p = get_user_profile(current_user_id)
                 prompt = f"""
-                你是一位專業營養師。請根據以下用戶個人資料分析照片中的餐點：
+                你是一位專業營養師兼嚴格又幽默的健康教練。請根據以下用戶個人資料分析照片中的餐點：
                 - 用戶身型：{p['age']}歲, {p['height']}cm, {p['weight']}kg
                 - 運動狀態：{p['activity']}
                 - 健康備註/過敏源：{p['medical']}
                 - 用戶補充說明：{user_note}
                 
-                請評估：
-                1. 這份餐點大致包含哪些食物與營養成分？
-                2. 這份餐點是否適合該用戶目前的身體狀態與運動習慣？
-                3. 有無營養過剩、不足或需要注意的健康風險？
+                請嚴格依照以下格式輸出：
+                1.【健康評分】：請給予一個 0 到 100 分的整數分數（格式範例：85 分 或 55 分）。
+                2.【教練評語】：
+                   - 若分數 >= 80 分：請給予熱情洋溢、大肆稱讚的誇獎與鼓勵！
+                   - 若分數在 60 ~ 79 分：給予客觀中立的建議。
+                   - 若分數 < 60 分：請給予帶有幽默「噓聲」與嚴格警示的吐槽（例如：boo~ 怎麼這樣吃！）。
+                3.【餐點內容與營養分析】：
+                   - 這份餐點大致包含哪些食物與營養成分？
+                   - 這份餐點是否適合該用戶目前的身體狀態與運動習慣？
+                   - 有無營養過剩、不足或需要注意的健康風險？
                 """
                 
-                # 自動重試機制 (最多重試 3 次)
                 max_retries = 3
                 success = False
                 
@@ -260,12 +326,22 @@ with tab1:
                             model="gemini-3.6-flash", contents=[prompt, image]
                         )
                         st.session_state.last_analysis = response.text
+                        
+                        # 從回傳文字中解析出 100 分制的數字
+                        import re
+                        score_match = re.search(r'(\d{1,3})\s*分', response.text)
+                        if score_match:
+                            parsed_score = int(score_match.group(1))
+                            st.session_state.last_score = min(max(parsed_score, 0), 100)
+                        else:
+                            st.session_state.last_score = 75  # 預設值
+                            
                         st.markdown(response.text)
                         success = True
                         break
                     except Exception as e:
                         if "503" in str(e) and attempt < max_retries - 1:
-                            time.sleep(2)  # 等待 2 秒後自動重試
+                            time.sleep(2)
                             continue
                         else:
                             st.error(f"❌ 分析失敗：{e} (請稍後重新點擊評估)")
@@ -274,30 +350,38 @@ with tab1:
         conn = get_db_connection()
         c = conn.cursor()
         c.execute(
-            "INSERT INTO food_logs (user_id, date, meal_type, content, weight) VALUES (%s, %s, %s, %s, %s)",
+            "INSERT INTO food_logs (user_id, date, meal_type, content, weight, score) VALUES (%s, %s, %s, %s, %s, %s)",
             (
                 int(current_user_id),
                 datetime.now().strftime("%Y-%m-%d %H:%M"),
                 meal_type,
                 st.session_state.last_analysis,
                 get_user_profile(current_user_id)["weight"],
+                st.session_state.get("last_score", 75),
             ),
         )
         conn.commit()
         c.close()
         conn.close()
-        st.success("✅ 已存入您的個人日誌！")
+        
+        # 成功記錄後更新連續天數 Streak
+        new_streak = update_user_streak(current_user_id)
+        st.success(f"✅ 已存入您的個人日誌！🔥 連續打卡天數已更新為：{new_streak} 天！")
+        
         del st.session_state.last_analysis
+        if "last_score" in st.session_state:
+            del st.session_state.last_score
+        st.rerun()
 
 # ------------------------------------------
-# TAB 2: 個人飲食日誌
+# TAB 2: 個人飲食日誌（顯示 100 分制分數）
 # ------------------------------------------
 with tab2:
     st.subheader(f"📖 {selected_username} 的飲食日誌")
     conn = get_db_connection()
     c = conn.cursor()
     c.execute(
-        "SELECT date, meal_type, content FROM food_logs WHERE user_id = %s ORDER BY date DESC",
+        "SELECT date, meal_type, content, score FROM food_logs WHERE user_id = %s ORDER BY date DESC",
         (int(current_user_id),)
     )
     rows = c.fetchall()
@@ -305,11 +389,24 @@ with tab2:
     conn.close()
     
     if not rows:
-        st.info("目前尚無您的飲食紀錄。")
+        st.info("目前尚無您的飲食紀錄。快去「記錄」頁面拍照上傳吧！")
     else:
         for row in rows:
-            with st.expander(f"⏰ {row[0]} - 【{row[1]}】"):
-                st.write(row[2])
+            date_str, meal_type_str, content_str, score_val = row[0], row[1], row[2], row[3]
+            
+            # 根據 100 分制顯示對應表情符號與標籤
+            if score_val is not None:
+                if score_val >= 80:
+                    badge = f"🌟 【{score_val}分 - 優秀！】"
+                elif score_val >= 60:
+                    badge = f"👍 【{score_val}分 - 普通】"
+                else:
+                    badge = f"👎 【{score_val}分 - Boo~需要改進】"
+            else:
+                badge = ""
+            
+            with st.expander(f"⏰ {date_str} - 【{meal_type_str}】 {badge}"):
+                st.write(content_str)
 
 # ------------------------------------------
 # TAB 3: 個人當日總結與歷史總結
@@ -339,7 +436,7 @@ with tab3:
         conn = get_db_connection()
         c = conn.cursor()
         c.execute(
-            "SELECT meal_type, content FROM food_logs WHERE user_id = %s AND date LIKE %s",
+            "SELECT meal_type, content, score FROM food_logs WHERE user_id = %s AND date LIKE %s",
             (int(current_user_id), f"{target_date_str}%")
         )
         today_logs = c.fetchall()
@@ -348,18 +445,19 @@ with tab3:
 
         if today_logs:
             if st.button(f"📊 產出並永久保存 {target_date_str} 總結報告"):
-                with st.spinner(f"AI 正在綜整 {target_date_str} 的飲食紀錄..."):
+                with st.spinner(f"AI 正在綜整 {target_date_str} 的飲食紀錄與 100 分制表現..."):
                     try:
                         p = get_user_profile(current_user_id)
-                        log_text = "\n".join([f"【{row[0]}】\n{row[1]}" for row in today_logs])
+                        log_text = "\n".join([f"【{row[0]}】(100分制評分: {row[2]}分)\n{row[1]}" for row in today_logs])
                         prompt = f"""
-                        請扮演專業營養師，根據用戶資料 {p} 與以下【{target_date_str}】的所有飲食紀錄：
+                        請扮演專業營養師，根據用戶資料 {p} 與以下【{target_date_str}】的所有飲食紀錄（包含各餐 100 分制評分）：
                         {log_text}
                         
-                        請給予：
-                        1. 當日總熱量與三大營養素（蛋白質、脂肪、碳水化合物）的粗估加總。
-                        2. 當日飲食的整體優缺點（是否有營養過剩或不足）。
-                        3. 針對接下來的飲食調整建議。
+                        請給予完整詳盡的總結：
+                        1. 當日整體的平均分數與表現評價。
+                        2. 當日總熱量與三大營養素（蛋白質、脂肪、碳水化合物）的粗估加總。
+                        3. 當日飲食的整體優缺點（營養過剩或不足之處）。
+                        4. 針對接下來的飲食調整建議。
                         """
                         response = client.models.generate_content(
                             model="gemini-3.6-flash", contents=prompt
