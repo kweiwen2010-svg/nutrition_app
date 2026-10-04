@@ -6,6 +6,7 @@ import psycopg2
 from PIL import Image
 import streamlit as st
 import time
+import re
 
 # ==========================================
 # 1. 頁面與 UI 樣式設定（手機端字體與側欄開關優化）
@@ -110,6 +111,15 @@ def init_db():
             height REAL, weight REAL, age INTEGER, activity TEXT, medical TEXT
         )
     """)
+    
+    # 擴充 user_profile 欄位以儲存體脂與肌肉量資訊
+    try:
+        c.execute("ALTER TABLE user_profile ADD COLUMN IF NOT EXISTS body_fat REAL;")
+        c.execute("ALTER TABLE user_profile ADD COLUMN IF NOT EXISTS muscle_mass REAL;")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS food_logs (
             id SERIAL PRIMARY KEY,
@@ -140,7 +150,7 @@ def init_db():
         c.execute("INSERT INTO users (username, streak_days) VALUES (%s, %s) RETURNING id", ("預設使用者", 0))
         default_id = c.fetchone()[0]
         c.execute(
-            "INSERT INTO user_profile (user_id, height, weight, age, activity, medical) VALUES (%s, 170.0, 65.0, 30, '中度運動', '無')",
+            "INSERT INTO user_profile (user_id, height, weight, age, activity, medical, body_fat, muscle_mass) VALUES (%s, 170.0, 65.0, 30, '中度運動', '無', 20.0, 50.0)",
             (default_id,)
         )
     conn.commit()
@@ -168,7 +178,7 @@ def create_user(username):
         c.execute("INSERT INTO users (username, streak_days) VALUES (%s, 0) RETURNING id", (username,))
         new_id = c.fetchone()[0]
         c.execute(
-            "INSERT INTO user_profile (user_id, height, weight, age, activity, medical) VALUES (%s, 170.0, 65.0, 30, '中度運動', '無')",
+            "INSERT INTO user_profile (user_id, height, weight, age, activity, medical, body_fat, muscle_mass) VALUES (%s, 170.0, 65.0, 30, '中度運動', '無', 20.0, 50.0)",
             (new_id,)
         )
         conn.commit()
@@ -185,24 +195,32 @@ def get_user_profile(user_id):
     conn = get_db_connection()
     c = conn.cursor()
     c.execute(
-        "SELECT height, weight, age, activity, medical FROM user_profile WHERE user_id = %s", 
+        "SELECT height, weight, age, activity, medical, body_fat, muscle_mass FROM user_profile WHERE user_id = %s", 
         (int(user_id),)
     )
     row = c.fetchone()
     c.close()
     conn.close()
     if not row:
-        return {"height": 170.0, "weight": 65.0, "age": 30, "activity": "中度運動", "medical": "無"}
-    return {"height": row[0], "weight": row[1], "age": row[2], "activity": row[3], "medical": row[4]}
+        return {"height": 170.0, "weight": 65.0, "age": 30, "activity": "中度運動", "medical": "無", "body_fat": 20.0, "muscle_mass": 50.0}
+    return {
+        "height": row[0] or 170.0, 
+        "weight": row[1] or 65.0, 
+        "age": row[2] or 30, 
+        "activity": row[3] or "中度運動", 
+        "medical": row[4] or "無",
+        "body_fat": row[5] if row[5] is not None else 20.0,
+        "muscle_mass": row[6] if row[6] is not None else 50.0
+    }
 
 def update_user_profile(user_id, data):
     conn = get_db_connection()
     c = conn.cursor()
     c.execute(
         """UPDATE user_profile 
-           SET height=%s, weight=%s, age=%s, activity=%s, medical=%s 
+           SET height=%s, weight=%s, age=%s, activity=%s, medical=%s, body_fat=%s, muscle_mass=%s 
            WHERE user_id=%s""",
-        (data["height"], data["weight"], data["age"], data["activity"], data["medical"], int(user_id))
+        (data["height"], data["weight"], data["age"], data["activity"], data["medical"], data["body_fat"], data["muscle_mass"], int(user_id))
     )
     conn.commit()
     c.close()
@@ -315,7 +333,7 @@ with tab1:
                 p = get_user_profile(current_user_id)
                 prompt = f"""
                 你是一位專業營養師兼嚴格又幽默的健康教練。請根據以下用戶個人資料分析照片中的餐點：
-                - 用戶身型：{p['age']}歲, {p['height']}cm, {p['weight']}kg
+                - 用戶身型：{p['age']}歲, {p['height']}cm, {p['weight']}kg, 體脂率：{p['body_fat']}%
                 - 運動狀態：{p['activity']}
                 - 健康備註/過敏源：{p['medical']}
                 - 用戶補充說明：{user_note}
@@ -342,7 +360,6 @@ with tab1:
                         )
                         st.session_state.last_analysis = response.text
                         
-                        import re
                         score_match = re.search(r'(\d{1,3})\s*分', response.text)
                         if score_match:
                             parsed_score = int(score_match.group(1))
@@ -413,7 +430,7 @@ with tab2:
                 elif score_val >= 60:
                     badge = f"👍 【{score_val}分 - 普通】"
                 else:
-                    badge = f"👎 【{score_val}分 - Boo~需要改進】"
+                    badge = f"👎 {score_val}分 - Boo~需要改進"
             else:
                 badge = ""
             
@@ -421,7 +438,7 @@ with tab2:
                 st.write(content_str)
 
 # ------------------------------------------
-# TAB 3: 個人當日總結與歷史總結（含總結評分與動態回饋）
+# TAB 3: 個人當日總結與歷史總結
 # ------------------------------------------
 with tab3:
     st.subheader("📊 飲食總結報告")
@@ -473,7 +490,7 @@ with tab3:
                         p = get_user_profile(current_user_id)
                         log_text = "\n".join([f"【{row[0]}】(100分制評分: {row[2]}分)\n{row[1]}" for row in today_logs])
                         prompt = f"""
-                        請扮演專業營養師兼嚴格又幽默的健康教練，根據用戶資料 {p} 與以下【{target_date_str}】的所有飲食紀錄（包含各餐 100 分制評分）：
+                        請扮演專業營養師兼嚴格又幽默的健康教練，根據用戶資料 {p} 與以下【{target_date_str}】的所有飲食紀錄：
                         {log_text}
                         
                         請嚴格依照以下格式輸出總結報告：
@@ -481,17 +498,15 @@ with tab3:
                         2.【教練總評語】：
                            - 若總分 >= 80 分：熱情洋溢、大肆稱讚！
                            - 若總分在 60 ~ 79 分：客觀中立建議。
-                           - 若總分 < 60 分：給予幽默「噓聲」與警示（例如：boo~ 今天吃得很不理想喔！）。
-                        3.【營養與熱量分析】：當日總熱量與三大營養素（蛋白質、脂肪、碳水化合物）的粗估加總。
-                        4.【飲食調整建議】：針對接下來幾天飲食的具體改善建議。
+                           - 若總分 < 60 分：給予幽默「噓聲」與警示。
+                        3.【營養與熱量分析】：當日總熱量與三大營養素估算。
+                        4.【飲食調整建議】：具體改善建議。
                         """
                         response = client.models.generate_content(
                             model="gemini-3.6-flash", contents=prompt
                         )
                         summary_text = response.text
 
-                        # 從回傳內容中解析出總分
-                        import re
                         score_match = re.search(r'(\d{1,3})\s*分', response.text)
                         if score_match:
                             daily_score = int(score_match.group(1))
@@ -518,37 +533,71 @@ with tab3:
         else:
             st.caption("（該日期尚無飲食記錄，無法產出總結）")
 
-    st.markdown("---")
-    st.markdown("### 📚 歷史總結目錄總覽")
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute(
-        "SELECT date, summary, score FROM daily_summaries WHERE user_id = %s ORDER BY date DESC",
-        (int(current_user_id),)
-    )
-    hist_rows = c.fetchall()
-    c.close()
-    conn.close()
-
-    if not hist_rows:
-        st.info("目前尚無任何歷史總結紀錄。")
-    else:
-        for h_row in hist_rows:
-            h_date, h_sum, h_score = h_row[0], h_row[1], h_row[2]
-            score_label = f" (總評: {h_score}分)" if h_score is not None else ""
-            with st.expander(f"📂 營養總結報告：{h_date}{score_label} (點擊展開)"):
-                st.markdown(h_sum)
-
 # ------------------------------------------
-# TAB 4: 個人設定
+# TAB 4: 個人設定與體脂計截圖辨識
 # ------------------------------------------
 with tab4:
-    st.subheader(f"⚙️ {selected_username} 的個人檔案設定")
+    st.subheader(f"⚙️ {selected_username} 的個人檔案與體脂設定")
+    
+    # ── 新增：上傳體脂計截圖自動讀取區塊 ──
+    with st.expander("📊 智慧讀卡機：上傳體脂計截圖自動更新數據", expanded=False):
+        st.write("上傳您的體脂計 App 截圖，AI 將自動幫您辨識 **體重、體脂肪率、肌肉量**！")
+        scale_file = st.file_uploader("上傳體脂計截圖", type=["jpg", "jpeg", "png"], key="scale_screenshot")
+        
+        if scale_file is not None:
+            scale_image = Image.open(scale_file)
+            st.image(scale_image, caption="已上傳體脂計截圖", use_container_width=True)
+            
+            if st.button("✨ 開始 AI 自動辨識體脂數據"):
+                with st.spinner("AI 正在讀取體脂計數據中..."):
+                    try:
+                        scale_prompt = """
+                        這是一張體脂計 App 的數據截圖。請幫我精準辨識並找出以下數值：
+                        1. 體重 (kg)
+                        2. 體脂肪率 (%)
+                        3. 肌肉量 (kg，若無直接顯示可用骨骼肌或淨體重代替)
+                        
+                        請嚴格用以下格式回傳數字（只需要給我數字即可，方便系統抓取）：
+                        - 體重: [數值]
+                        - 體脂肪率: [數值]
+                        - 肌肉量: [數值]
+                        """
+                        scale_res = client.models.generate_content(
+                            model="gemini-3.6-flash", contents=[scale_prompt, scale_image]
+                        )
+                        
+                        # 解析 AI 回傳的數值
+                        w_match = re.search(r'體重[:：]\s*([\d.]+)', scale_res.text)
+                        f_match = re.search(r'體脂肪率[:：]\s*([\d.]+)', scale_res.text)
+                        m_match = re.search(r'肌肉量[:：]\s*([\d.]+)', scale_res.text)
+                        
+                        detected_w = float(w_match.group(1)) if w_match else None
+                        detected_f = float(f_match.group(1)) if f_match else None
+                        detected_m = float(m_match.group(1)) if m_match else None
+                        
+                        # 將辨識到的結果暫存進 session_state 供表單預填
+                        if detected_w: st.session_state.parsed_weight = detected_w
+                        if detected_f: st.session_state.parsed_fat = detected_f
+                        if detected_m: st.session_state.parsed_muscle = detected_m
+                        
+                        st.success("✅ 辨識成功！請檢查下方數值並點擊「儲存個人資料」以寫入資料庫。")
+                        st.markdown(scale_res.text)
+                    except Exception as e:
+                        st.error(f"❌ 辨識失敗：{e}")
+
+    # ── 標準個人資料表單 ──
     p = get_user_profile(current_user_id)
 
     with st.form("profile_form"):
+        # 優先使用截圖辨識後的值（若有的話）
+        default_w = st.session_state.get("parsed_weight", float(p["weight"]))
+        default_f = st.session_state.get("parsed_fat", float(p["body_fat"]))
+        default_m = st.session_state.get("parsed_muscle", float(p["muscle_mass"]))
+
         h_val = st.number_input("身高 (cm)", value=float(p["height"]))
-        w_val = st.number_input("體重 (kg)", value=float(p["weight"]))
+        w_val = st.number_input("體重 (kg)", value=default_w)
+        fat_val = st.number_input("體脂肪率 (%)", value=default_f)
+        muscle_val = st.number_input("肌肉量 (kg)", value=default_m)
         a_val = st.number_input("年齡", value=int(p["age"]))
 
         activities = ["久坐不動", "輕度運動", "中度運動", "高度運動"]
@@ -565,6 +614,15 @@ with tab4:
                 "age": a_val,
                 "activity": act_val,
                 "medical": med_val,
+                "body_fat": fat_val,
+                "muscle_mass": muscle_val,
             }
             update_user_profile(current_user_id, new_p)
-            st.success("✅ 個人資料已更新！")
+            
+            # 清除暫存
+            if "parsed_weight" in st.session_state: del st.session_state.parsed_weight
+            if "parsed_fat" in st.session_state: del st.session_state.parsed_fat
+            if "parsed_muscle" in st.session_state: del st.session_state.parsed_muscle
+            
+            st.success("✅ 個人資料與體脂數據已更新！")
+            st.rerun()
